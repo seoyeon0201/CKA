@@ -221,8 +221,8 @@
 - Cluster를 Scratch에서 셋업하는 경우 바이너리를 직접 다운로드해 배포
 - Master node에 직접 바이너리를 설치하고 서비스로서 구성
 - 대부분이 certificate(ex.TLS)와 관련
-- 유일한 옵션이 `--advertise-client-urls https://${INTERNAL_IP}:2379`
-  - etcd가 듣는 주소
+- etcd 클러스터의 유일한 설정 옵션이 `--advertise-client-urls https://${INTERNAL_IP}:2379`
+  - 클라이언트에게 etcd 서버를 알리는 데 사용하는 URL
   - server의 IP와 port 2379
   - kube api server에서 구성되어야 할 URL
 
@@ -242,26 +242,288 @@
 - etcdctl로 DB에 접근 가능
   - Kubernetes가 저장한 모든 key를 열거하려면 아래와 같이 명령어 실행
   - `kubectl exec etcd-master -n kube-system etcdctl get / --prefix -keys-only`
-  - Kubernetes는 특정 디렉토리 구조에 데이터 저장
-    - Root registry는 registry로, 그 아래에 minions, pods, replications과 같은 다양한 쿠버네티스 리소스 존재
+
+- Kubernetes는 특정 디렉토리 구조에 데이터 저장
+  - Root registry는 registry로, 그 아래에 minions, pods, replications과 같은 다양한 쿠버네티스 리소스 존재
   ![alt text](image-2.png)
 
 ### ETCD in HA Environment
 
-- 고가용성 환경(High Availability)에선 클러스터에 Master Node가 여러개
-- Master Node 전체에 여러 개의 etcd instance가 퍼지고 이 경우 etcd 서비스 구성에 올바른 매개 변수를 설정해 etcd instance가 서로 알도록 설정
- 
+- 고가용성 환경(High Availability)에선 클러스터에 Master Node가 여러 개
+- 이 경우 Master Node 전체에 여러 개의 etcd instance가 퍼지고, etcd 서비스 구성에 올바른 매개 변수를 설정해 etcd instance가 서로 알도록 설정
+  - `--initial-cluster` 옵션으로 클러스터를 처음 설정할 때 각 etcd 노드의 정보 지정
 ![alt text](image-3.png)
 
 
 ## ETCD - Commands
 
+- ETCDCTL은 ETCD와 상호 작용하기 위해 사용하는 CLI 도구
+- 버전2와 버전3가 있으며 API 버전이 설정되지 않은 경우, 기본적으로 버전2로 설정
+- ETCDCTL이 ETCD API 서버에 인증할 수 있도록 인증서 파일 경로 지정해야 하며, 인증서 파일은 etcd-master에서 아래 경로에 존재
+```
+--cacert /etc/kubernetes/pki/etcd/ca.crt
+--cert /etc/kubernetes/pki/etcd/server.crt
+--key /etc/kubernetes/pki/etcd/server.key
+```
+
+- ETCDCTL API 버전과 인증서 파일 경로 지정하는 최종 형태
+
+```
+kubectl exec etcd-master -n kube-system -- sh -c "ETCDCTL_API=3 etcdctl get / --prefix --keys-only --limit=10 --cacert /etc/kubernetes/pki/etcd/ca.crt --cert /etc/kubernetes/pki/etcd/server.crt --key /etc/kubernetes/pki/etcd/server.key"
+```
+
 ## Kube-API Server
+
+> 주요 관리 구성 요소
+
+- kubectl 명령 실행
+  1. Authenticate User 
+  - kubectl 명령을 실행하면 kubectl utility가 `kube API Server`에 도달
+  2. Validate Request
+  - Kube API Server가 요청을 인증하고 유효성 확인
+  3. Retrieve Data 
+  - etcd cluster에서 데이터를 회수해 요청된 정보로 응답
+
+- kubectl 대신 API를 직접 호출할 수도 있음
+  - Ex. POST 요청 전송
+
+- Example: Pod 생성
+  1. Authenticate User
+  2. Validate Request
+  3. Retrieve Data
+  - Kube API server는 node에 할당하지 않고 pod 개체 생성
+  4. Update ETCD
+  - etcd server에 있는 정보 업데이트 후 pod가 생성된 사용자 업데이트
+  5. Scheduler
+  - kube scheduler가 지속적으로 Kube API server 모니터링
+    - node가 할당되지 않은 새로운 pod가 있다는 것을 알게 됨
+    - kube scheduler가 올바른 node를 식별해 새 pod를 배치하고 kube API server와 통신
+  6. Kubelet
+  - API server는 etcd cluster의 정보 업데이트
+  - API server는 해당 정보를 적절한 worker node의 kubelet에 전달
+  - Kubelet은 node에 pod를 생성하고 Container Runtime Engine에 지시해 Application image 배포
+  - 위 단계가 완료되면 kubelet은 상태를 API server로 다시 업데이트
+  - API server는 etcd cluster에서 데이터 업데이트
+
+- Kube API Server는 cluster에서 변경을 위해 수행해야 하는 모든 작업의 중심에 존재 
+
+#### Kube-API Server
+
+1. Authenticate User
+2. Validate Request
+3. Retrieve Data
+- 데이터 검색
+4. Update ETCD
+- 데이터 업데이트
+5. Scheduler
+6. Kubelet
+
+**Kube API Server는 ETCD 저장소와 직접 상호작용하는 유일한 구성 요소**
+
+- Scheduler, kube controller manager, kubelet과 같은 요소는 API Server를 이용해 각 영역의 cluster에서 업데이트 진행
+
+#### Installing kube-api server
+
+- `kubeadmin` 도구를 이용해 cluster를 부트스트랩했다면, 하드웨어 설정하는 경우 kube API Server는 바이너리로 사용 가능
+- Master node에서 서비스로 실행되도록 다운로드해 구성 가능
+- kube API Server는 많은 매개 변수로 실행
+![alt text](image-5.png)
+![alt text](image-6.png)
+- Section1에서 배우는 모든 구성 요소는 연결된 인증서(SSL/TLS)를 가짐
+
+#### View api-server - kubeadm
+
+- kubeadm 툴로 설정하면 kubeadm은 kube-api server 배포
+- Master node의 kube-system namespace의 pod로 배포
+
+#### View api-server options- kubeadm
+
+- pod로 배포된 kube-api server의 yaml 파일 조회 가능
+
+`cat /etc/kubernetes/manifests/kube-apiserver.yaml`
+
+- kubeadm이 아닌 설정으로 kube-api server를 설치한 경우에는 kube api server 서비스를 통해 옵션 조회 가능
+
+`cat /etc/systemd/system/kube-apiserver.service`
+
+- Running process와 효과적인 옵션 조회 가능
+
+`ps -aux | grep kube-apiserver`
 
 ## Kube Controller Manager
 
+1. Watch Status
+2. Remediate Situation
+
+#### Controller
+
+- Kubernetes Controller는 측면에서 시스템 내 다양한 구성 요소의 상태를 지속적으로 모니터링하고 시스템 전체를 원하는 기능 상태로 만드는 것
+
+1. Node Controller
+- Kube API Server를 통해 Node의 상태를 모니터링하고 Application이 계속 실행되도록 필요한 행동 진행
+- Node Controller는 5초마다 node의 상태를 모니터링하고, node의 상태가 Unreachable로 표시되면 40초 후에 제거되며, node에서 pod가 제거될 때 정상적으로 종료될 때까지 기다리는 최대 시간은 5분
+  - `Node Monitor Period`: 5s
+    - node 상태를 주기적으로 확인하는 시간 간격
+  - `Node Monitor Grace Period`: 40s
+    - node 상태 변화를 유예하는 시간
+  - `POD Eviction Timeout`: 5m
+    - pod가 정상적으로 종료될 때까지 기다리는 최대 시간
+
+2. Replication Controller
+- ReplicaSet의 상태 모니터링하고 원하는 수의 pod가 set 내에서 항상 사용 가능하도록 함
+- pod가 죽으면 새로 생성
+
+- Node Controller와 Replication Controller 이외에도 다양한 Controller 존재
+
+- Controller는 어떻게 보고 cluster의 어디에 위치하는가 => `Kubernetes Controller Manager`라는 하나의 프로세스로 패키징
+
+#### Installing kube-controller-manager
+
+- Kubernetes release 페이지에서 kube controller manager 다운로드 후 서비스로 추출해 실행
+- 실행하면 아래와 같은 옵션 목록 제공
+  - 사용자 지정 옵션 존재: Node Controller의 Node Monitor Period, Node Monitor Grace Period, POD Eviction Timeout, Controller(어떤 controller 활성화할지 지정. Default는 *. 모두 활성화. 특정 controller가 작동하지 않거나 존재하지 않는 경우 해당 옵션 확인)
+  ```
+  --node-monitor-period=5s
+  --node-monitor-grace-period=40s
+  --pod-eviction-timeout=5m0s
+  --controllers stringSlice Default: [*]  #특정 controller가 작동하지 않거나 존재하지 않는 경우 해당 옵션 확인
+  ```
+
+![alt text](image-7.png)
+
+#### View kube-controller-manager - kubeadm
+
+- kube controller manager 서버 옵션 조회
+- kubeadm으로 cluster 설정하면 kube-system namespace에 kube-controller-manager-master 이름의 pod로 배포
+
+#### View kube-controller-manager options - kubeadm
+
+- pod 정의 yaml 파일로 옵션 조회 가능
+
+`cat /etc/kubernetes/manifests/kube-controller-manager.yaml`
+
+- kubeadm이 아닌 설정으로 kube controller manager를 설치한 경우에는 kube api server 서비스를 통해 옵션 조회 가능
+  - kubeadm이 아닌 직접 Kubernetes 컴포넌트를 설정하고 설치한 경우, systemd와 같은 서비스 관리 도구를 사용해 kube-controller-manager를 설정하고 실행
+  - 설정과 옵션들은 서비스 유닛 파일(kube-controller-manager.service)을 통해 조회하고 설정할 수 있음
+
+`cat /etc/systemd/system/kube-controller-manager.service`
+
+- 프로세스가 실행 중인 경우 효과적인 옵션 조회
+  - Master node에 프로세스 나열 후 kube-controller-manager 검색
+
+`ps -aux | grep kube-controller-manager`
+
 ## Kube Scheduler
+
+> Kube Scheduler는 어떤 pod가 어떤 node에 들어갈지만 결정. pod를 node에 두는 것을 하지는 않음
+
+#### Kube-Scheduler
+
+- 필요성
+  - 알맞은 node에 알맞은 container를 넣어야 함
+  - container를 수용할만한 크기를 가졌는가
+  - container가 올바른 목적지로 갈 수 있는가
+
+- Kubernetes에서는 Kube-Scheduler가 특정 기준에 따라 pod를 어느 node에 놓을지 결정
+  - 리소스 요구 사항이 다른 pod가 존재할 수 있음
+  - 특정 Application에 전용되는 node를 둘 수 있음
+
+- 결정 방법
+  - Container는 CPU와 메모리 요구 사항 set 존재
+  1. Filter Nodes
+  - Kube-Scheduler가 pod에 맞지 않는 node를 걸러냄
+    - Ex. Node의 CPU와 메모리 리소스가 부족하면 pod 요청
+  2. Rank Nodes
+  - Kube-Scheduler는 pod에 가장 적합한 node 표시
+  - priority 함수 사용해 0~10까지의 점수로 node에 점수 매김
+    - pod를 설치한 후 node에 자유로워질 리소스의 양 계산해 양이 클 수록 우선순위에 높아짐
+
+#### More Later
+
+- Resource Requirements and Limits
+- Taints and Tolerations
+- Node Selectors/Affinity
+
+#### Installing kube-scheduler
+
+- Kubernetes release 페이지에서 kube-scheduler 바이너리를 다운로드해 추출해 서비스로 실행
+- 서비스로 실행할 때 scheduler 구성 파일 지정
+![alt text](image-8.png)
+
+#### View kube-scheduler options - kubeadm
+
+- kubeadm 툴로 설정하면 Master node의 kube-system namespace에 pod로 배포
+- pod 정의 파일에서 옵션 조회 가능
+
+`cat /etc/kubernetes/manifests/kube-scheduler.yaml`
+
+- 실행 중인 프로세스 옵션 조회
+  - 프로세스를 Master node에 나열하고 kube-scheduler 검색
+
+`ps -aux | grep kube-scheduler`
 
 ## Kubelet
 
+1. Register Node
+- Cluster로 node 등록
+2. Create Pods
+- Node에 container 또는 pod를 로드하라는 지시를 받으면 Container Runtime Engine 요청
+  - Ex. Docker
+  - 필요한 이미지를 끌어와 인스턴스 실행 
+3. Monitor Node & Pods
+- Pod의 상태와 container를 모니터링하고 동시에 Master Node의 Kube-API Server에 보고
+
+#### Installing kubelet
+
+- kubeadm을 사용해 Cluster를 배포할 떄에는 **kubelet을 자동으로 배포하지 않음**
+- **Worker node에 반드시 수동으로 kubelet 설치해야 함**
+  - 다운로드 후 서비스로 실행
+  ![alt text](image-9.png)
+
+#### View kubelet options
+
+- Worker node에 프로세스를 나열하고 kubelet을 검색해 실행 중인 kubelet 프로세스와 효과적인 옵션 조회 가능
+
+`ps -aux | grep kubelet`
+
+- 추후에 kubelet 구성하고 TLS 인증서를 생성해 부트스트랩하는 방법 배움
+
 ## Kube Proxy
+
+- Kubernetes Cluster 내에서는 모든 pod가 서로 통신할 수 있음
+  - `Pod Networking Solution`을 Cluster에 배포함으로써 이루어짐
+- Pod Network는 내부의 가상 네트워크로 모든 pod가 연결되는 cluster 내 모든 node에 걸쳐 있어 서로 통신할 수 있음
+  - 이러한 네트워크를 배포하는 데 사용 가능한 솔루션이 많음
+
+- Ex. 첫 번째 node에 웹 앱, 두 번째 node에 DB Application 배포
+  - 웹 앱은 단순히 pod의 IP를 이용해 DB에 접근 가능
+  - BUT DB의 pod IP가 늘 같을 거라는 보장이 없음 => 더 나은 방법은 `Service` 이용
+  - Cluster에 걸쳐 DB를 노출할 Service 생성
+  - 웹 앱은 Service 이름을 이용해 DB에 액세스
+  - Service는 할당된 IP 주소도 받음
+  - pod가 IP나 이름을 이용해 Service에 도달하려 할 때마다 트래픽을 백엔드 pod(현재의 경우 DB)로 전달
+  - 이때 Service는 실제로 있는 것이 아니기 때문에 pod network에 조인할 수 없음
+  - pod 같은 container가 아니라서 인터페이스도 없고 적극적으로 듣는 프로세스도 없음
+  - Kubernetes 메모리에만 존재하는 가상 구성 요소
+  - BUT Service는 cluster를 가로질러 어떤 node에서도 액세스 가능해야 하는데 어떻게 가능한가? => `Kube-proxy`
+
+#### Kube-proxy
+
+- Kubernetes Cluster의 각 node에서 실행되는 프로세스
+- 새 Service가 생성될 때마다 각 node에 적절한 규칙을 만들어 그 서비스(백엔드 pod)로 트래픽 전달
+- 방법1. `iptables 규칙` 사용
+  - Cluster의 각 node에 iptables 규칙을 만들어 Service의 IP로 트래픽을 향하게 함
+
+#### Installing kube-proxy
+
+- Kubernetes release 페이지에서 kube-proxy 바이너리 다운로드하고 추출해 서비스로 실행
+
+![alt text](image-10.png)
+
+#### View kube-proxy - kubeadm
+
+- kubeadm은 각 node에 kube-proxy pod(정확히는 daemonset)로 배포
+
+![alt text](image-12.png)
+
+- 단일 pod는 항상 cluster 내 각 node에 배포
