@@ -527,3 +527,100 @@ kubectl exec etcd-master -n kube-system -- sh -c "ETCDCTL_API=3 etcdctl get / --
 ![alt text](image-12.png)
 
 - 단일 pod는 항상 cluster 내 각 node에 배포
+
+## Recap - Pods
+#### Assumptions
+
+- Docker Image와 Kubernetes Cluster가 설정되었다고 가정
+
+#### Pod
+
+- 최종 목표는 Application을 Cluster의 Worker node에 container 형태로 배포하는 것
+- BUT Kubernetes는 Worker node에 직접 container를 배포하지 않음 => Container는 Pod라는 캡슐 형태의 kubernetes object로 포장
+- Pod는 Application의 단일 instance이며 kubernetes의 가장 작은 Object
+
+![alt text](image-13.png)
+
+- 예시: 단일 Node kubernetes cluster로 Application instance가 pod에 캡슐화된 단일 docker container에서 실행
+  - Application에 액세스하는 사용자 수가 증가해 Application의 scale을 늘려야 하는 경우
+    - 로드를 공유하려면 웹 앱의 추가 인스턴스 추가
+  - 추가 인스턴스를 어디에서 스핀업하는가?
+    - 같은 Application의 새로운 인스턴스로 새로운 pod 생성
+  - 사용자가 증가해 현재 node에서 충분한 용량을 확보하지 못하는 경우
+    - Cluster의 새 node에 추가 pod 배포
+    - 이때 cluster의 물리적 용량을 확장하기 위해 새로운 node 생성
+
+=>  **보통 pod는 Application을 실행하는 container와 일대일 관계**
+- 즉 규모를 키우려면 새 pod를 만들고, 줄이려면 기존 pod 제거
+- Application 규모를 줄이기 위해 기존 pod에 추가 container를 추가하지 않음
+
+![alt text](image-14.png)
+
+#### Multi-Container Pods
+
+- Pod는 보통 container와 일대일로 연결
+- BUT **하나의 pod에 container가 여러 개**일 수 있음 => `Multi-Container Pods`
+  - 보통 같은 종류의 container가 여러 개 존재하지 않고, Application을 지원하는 `Helper Container` 존재
+  - Ex. 사용자와 데이터 처리, 사용자가 업로드한 파일 처리 등의 Helper container
+- 새 Application이 생성되면 helper container도 생성되고, Application이 죽으면 helper container도 죽음
+  - 같은 pod에 존재하기 때문
+- 두 container는 같은 네트워크를 공유하기 때문에 서로 (localhost로) 직접 통신할 수 있고 저장소 공간도 쉽게 공유할 수 있음
+
+![alt text](image-15.png)
+
+#### Pods - Docker container 관련
+
+1. Docker host에 application을 배포하기 위한 프로세스 또는 스크립트 개발 중이라 가정
+2. Application 배포
+
+`docker run python-app`
+
+3. 로드가 증가하면 `docker run` 명령어를 통해 더 많은 application instance 배포
+
+![alt text](image-16.png)
+
+4. Application이 복잡해져 다른 곳에서 데이터 처리를 도와주는 Helper container 등장
+
+`docker run helper -link app1`
+
+5. Helper container는 Application container와 일대일 매핑 관계를 유지하므로 Application container와 직접적으로 소통하고 그 container로부터 데이터에 접근해야 함
+
+![alt text](image-17.png)
+
+6. 어떤 Application과 Helper container가 서로 연결되어 있는지 container 간의 네트워크 연결을 직접 구축해야 함
+- 링크와 사용자 지정 네트워크 사용해 공유할 수 있는 volume을 만들어, container 사이 공유
+
+![alt text](image-19.png)
+
+7. Application container의 상태 모니터링해야 함
+- Application container가 죽으면 Helper container도 수동으로 죽여야 함
+- 새로운 Application container가 생성되면 새로운 Helper container도 배포해야 함
+
+**Kubernetes에서는 위의 모든 과정을 Pod가 자동으로 해줌**
+
+- Pod에 어떤 container로 구성되어 있는지 정의만 하면 됨
+- Pod의 container는 기본값으로 같은 저장소와 같은 네트워크 namespace와 같은 공간에 접근할 수 있음
+- 따라서 함께 생성되고 함께 삭제됨
+
+![alt text](image-20.png)
+
+- 다중 Container Pod는 드문 사례이고, 강의에서는 Pod당 Container 하나만 사용할 것
+
+#### kubectl
+
+- `kubectl run nginx --image nginx`
+  - Pod를 생성해 Docker container 배포
+  - Pod를 자동으로 생성해 nginx docker image의 instance를 배포
+  - 이때 application image는 `--image` 파라미터 사용
+    - image는 Docker Hub Repository에서 다운로드
+- `kubectl get pods`
+  - Cluster 내의 Pod 목록 조회
+
+## Pods with YAML
+
+## Demo - Pods with YAML
+
+## Practice Test Introduction
+
+## Demo:Accessing Labs
+
