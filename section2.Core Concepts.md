@@ -618,9 +618,102 @@ kubectl exec etcd-master -n kube-system -- sh -c "ETCDCTL_API=3 etcdctl get / --
 
 ## Pods with YAML
 
+> YAML 파일로 Pod 생성하는 방법
+
+- Kubernetes definition file은 항상 4개의 상위 레벨(루트 레벨 속성) 존재
+  - `apiVersion`
+    - 리소스 생성할 때 사용하는 쿠버네티스 API 버전
+    - 만드려는 리소스에 따라 올바른 버전 사용해야 함
+  - `kind`
+    - 만드려는 개체(리소스) 유형
+
+    |Kind|Version|
+    |:--:|:--:|
+    |Pod|v1|
+    |Service|v1|
+    |ReplicaSet|apps/v1|
+    |Deployment|apps/v1|
+
+  - `metadata`
+    - 리소스의 데이터
+    - Dictionary 형태
+      - 같은 라인에 존재해야 하는 데이터는 서로 빈 칸이 동일해야 함
+      - 부모보다 빈 칸이 많아야 함
+
+    - Ex. name, labels
+      - name: 리소스의 이름
+      - labels: dictionary 형태로, 원하는대로 key-value 쌍을 가질 수 있으며 해당 리소스를 식별하는데 도움이 됨
+ 
+  - `spec`
+    - pod에 필요한 container 또는 image 등 사양을 dictionary 형태로 작성
+    - 생성하려는 리소스에 따라 관련된 추가 정보 제공
+    - Ex. containers
+      - 여러 container가 pod 안에 존재할 수 있기 때문에 list/array 형태
+      - containers.name
+        - containers 아래에 " - (대시)"는 list/array의 첫 번째 항목을 가리킴
+      - containers.image
+        - container에 사용할 이미지로, docker repository에서 가져옴
+
+`pod-definition.yaml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+  labels:
+    app: myapp
+    type: front-end
+spec:
+  containers:
+  - name: nginx-container
+    image: nginx
+```
+
+`kubectl create -f pod-definition.yaml`로 YAML 파일 이용해 pod 생성
+
+#### Commands
+
+`kubectl get pods`
+- 사용 가능한 pod 목록 확인
+
+`kubectl describe pod myapp-pod`
+- 특정 pod에 대한 정보 확인
+  - ex. name, namespace, node, label, container 등
+
 ## Demo - Pods with YAML
 
-## Practice Test Introduction
+> YAML 파일 사용해 Pod 생성
 
-## Demo:Accessing Labs
+1. `vim pod.yaml` 
+
+- pod.yaml 이름의 파일 생성
+
+2. pod.yaml 작성 후 esc :wq! 클릭
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+    tier: frontend
+spec:
+  containers: 
+  - name: nginx #container name
+    image: nginx #container image. 기본적으로 Docker Hub에서 가져옴
+```
+
+3. `cat pod.yaml`으로 definition file 확인
+4. `kubectl apply -f pod.yaml`
+
+- `kubectl create`와 `kubectl apply` 모두 동일하게 리소스 생성
+
+5. `kubectl get pods` 
+
+- 생성된 pod 확인
+
+6. `kubectl describe pod nginx`
+
+- pod의 더 많은 정보 획득 가능
 
