@@ -717,3 +717,223 @@ spec:
 
 - pod의 더 많은 정보 획득 가능
 
+## Practice Test - Pods
+
+
+Q4
+
+`kubectl describe pod [POD NAME] | grep [보고 싶은 단어]`
+
+- 원하는 정보 빠르게 찾을 수 있음
+
+Q5
+
+`kubectl get pods -o wide`
+
+- pod의 node 조회 가능 
+
+Q10
+
+`kubectl get pods`에서 READY는 [생성된 container 개수]/[생성해야하는 container 개수]
+
+Q13
+
+`kubectl apply -f pod.yaml`으로 잘못된 이미지 사용 후 수정하려면 pod.yaml 수정 후 다시 `kubectl apply -f pod.yaml`
+
+
+## Recap - ReplicaSets
+
+#### Replication Controller - High Availability
+
+- Kubernetes의 두뇌는 Controller. Kubernetes를 모니터링하고 그에 따라 반응
+
+- Scenario. Application을 실행하는 단일 Pod에서 Application이 다운되고 Pod가 fail되면 사용자는 Application에 더이상 접속할 수 없게 됨
+  - 사용자가 Application에 대한 액세스를 잃지 않도록 하려면 1개 이상의 instance나 pod가 동시에 실행되어야 함
+  - 그래야 하나가 fail되어도 다른 하나에서 Application이 실행됨
+  - Replication Controller는 Kubernetes cluster에 있는 단일 pod와 다중 instance를 실행하도록 도와줌 => `High Availability` 고가용성 제공
+  - Pod가 하나여도 Replication Controller는 기존의 pod가 고장났을 때 자동으로 새 pod를 불러올 수 있음
+  - 따라서 Replication Controller는 특정 pod가 항상 실행하도록 보장
+
+#### Load Balancing & Scaling
+
+- Replication Controller가 필요한 이유는 여러 개의 pod를 만들어 load를 공유하기 위해서
+- Scenario. 단일 pod가 모든 사용자 load 담당
+  - 사용자 수가 증가하면 pod를 하나 더 설치해 두 부분의 하중을 균형 잡음
+  - 수요가 더 증가하고 첫 번째 node에 리소스가 바닥난다면, 클러스터 내 다른 node에 추가 부품 배포
+  - 이에서 알 수 있듯, Replication Controller는 클러스터 내 여러 node에 뻗어 있음
+    - 서로 다른 node의 여러 pod에 걸쳐 부하 분산하는데 도움이 되고, 수요가 증가하면 Application scale도 조정 가능
+
+#### Replication Controller vs Replica Set
+
+1. Replication Controller
+- 구식 기술로 ReplicaSet으로 대체
+- Replication Controller는 pod를 생성하므로, `spec` 아래에 `template`, `replicas` 섹션 존재
+  - 이때 template은 사용할 pod의 template 제공하며, pod definition 파일에 작성했던 `metadata`와 `spec`을 그대로 가져옴
+
+`rc-definition.yaml`
+```
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: myapp-rc
+  labels:
+    app: myapp
+    type: front-end
+spec:
+  template:
+    metadata:
+      name: myapp-pod
+      labels:
+        app: myapp
+        type: front-end
+    spec:
+      containers:
+        - name: nginx-container
+          image: nginx
+  replicas: 3
+```
+
+`kubectl create -f rc-definition.yaml`
+`kubectl get replicationcontroller`
+`kubectl get pods`
+- pod 이름은 모두 ReplicationController name(현재는 myapp-rc)으로 시작
+
+2. Replica Set
+- Replica를 설정하는 새로운 권장 방법
+- ReplicaSet은 Replica Controller와 달리 spec 아래에 `selector`를 반드시 작성해야함
+  - `selector`는 replicaSet 아래의 pod를 식별할 수 있게 해줌
+    - ReplicaSet에서는 ReplicaSet으로 만들어지지 않은 Pod도 관리할 수 있으므로 selector를 작성해야 식별할 수 있음
+    - 일치하는 label 형식으로 작성해야 함
+
+`replicaset-definition-yaml`
+```
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: myapp-replicaset
+  labels:
+    app: myapp
+    type: front-end
+spec:
+  template:
+    metadata:
+      name: myapp-pod
+      labels:
+        app: myapp
+        type: front-end
+    spec:
+      containers:
+        - name: nginx-container
+          image: nginx
+  replicas: 3
+  selector:
+    matchLabels:
+      type: front-end
+```
+
+`kubectl create -f replicaset-definition.yaml`
+`kubectl get replicaset`
+`kubectl get pods`
+
+#### Labels and Selectors
+
+
+- frontend application을 배포한 pod 3개 존재
+  - replication controller 또는 replicaset을 이용해 pod는 항상 3개 존재 
+- ReplicaSet은 pod를 모니터링하고 하나가 고장나면 새 pod 배포
+- **어떤 pod를 모니터링할지 결정할 때** label과 selector 필요
+
+`replicaset-definition.yaml`
+```
+selector:
+  matchLabels:
+    tier: front-end
+```
+
+`pod-definition.yaml`
+```
+metadata:
+  name: myapp-pod
+  labels:
+    tier: front-end
+```
+
+#### Scale
+
+- ReplicaSet Scaling 방법
+
+1. definition file에서 replicas 수 변경 후 `kubectl replace -f replicaset-definition.yaml`
+
+`replicaset-definition.yaml`
+```
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: myapp-replicaset
+  labels:
+    app: myapp
+    type: front-end
+spec:
+  template:
+    metadata:
+      name: myapp-pod
+      labels:
+        app: myapp
+        type: front-end
+    spec:
+      containers:
+        - name: nginx-container
+          image: nginx
+  replicas: 6 #기존 3에서 6으로 변경
+  selector:
+    matchLabels:
+      type: front-end
+```
+
+2. `kubectl scale --replicas=6 replicaset-definition.yaml` 또는 `kubectl scale --replicas=6 replicaset(RESOURCE TYPE) myapp-replicaset(RESOURCE NAME)`
+
+#### Commands
+
+`kubectl create -f replicaset-definition.yaml`
+
+- replicaset 제작에 사용
+
+`kubectl get replicaset`
+
+`kubectl delete replicaset [REPLICASET NAME]`
+
+- replicaset 삭제
+
+`kubectl replace -f replicaset-definition.yaml`
+
+- definition YAML 파일 수정 후 적용
+
+`kubectl scale -replicas=6 -f replicaset-definition.yaml`
+
+- Command line으로 replicas 복제본 수 변경
+
+## Practice Test - ReplicaSets
+
+## Deployments
+
+## Practice Test - Deployments
+
+## Services
+
+## Services - Cluster IP
+
+## Service - Loadbalancer
+
+## Practice Test - Services
+
+## Namespaces
+
+## Practice Test - Namespaces
+
+## Imperative vs Declarative
+
+## Practice Test - Imperative Commands
+
+## Kubectl Apply Command
+
+## Quick Reminder
