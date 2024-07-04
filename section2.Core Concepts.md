@@ -914,13 +914,266 @@ spec:
 
 ## Practice Test - ReplicaSets
 
+| replicaset = rs
+
+| Replicaset 변경할 때에는 (1) pod를 모두 지우거나 (2) replicaset yaml 파일을 delete 하는 작업 필요
+
+| Replicaset replicas 개수 변경
+1. `k scale --replicas=[NUMBER] -f [REPLICASET YAML FILE]`
+2. `k scale rs [REPLICASET NAME] --replicas=[NUMBER]`
+3. 또는 yaml 파일 변경 후 `k edit -f [YAML FILE]` 
+4. 또는 `k edit replicaset [REPLICASET NAME]`으로 정의 파일 들어가서 replicas 변경
+
+`kubectl explain replicaset`
+
+- replicaset의 kind, version, field 등 나타남
+
 ## Deployments
+
+| Production 환경에서 Application 배포하는 경우
+
+- Production 환경에 배포해야 하는 web server 가정
+- 여러 web server 인스턴스가 실행
+- Docker registry에 새로운 application bills이 상용화될 때마다 docker instance 업그레이드해야 함
+- 사용자가 우리 앱에 접속하는 데 영향이 없게 하나 씩 업그레이드 해야 함 => `Rolling Update`
+- 업그레이드에 오류가 생겨 최근의 변화를 취소해야 하는 경우 존재 => `Roll Back`
+- 환경에 다양한 변화를 줄 수 있음
+  - Ex. web server 버전 업그레이드, 환경 조정, 리소스 할당 수정
+- 위의 내용을 명령을 실행했을 때 각 변경을 적용해서는 안 됨 => 환경을 일시 중지한 후 적용하고 다시 시작해 모든 변화가 함께 Roll Out 되어야 함
+- 이 모든 기능이 Kubernetes의 Deployment로 함께 사용할 수 있음
+
+#### Deployments
+
+- Pod로 container를 감싸고, Replicaset으로 여러 pod를 관리하고, Deployment로 하부 인스턴스 업그레이드 가능
+- Rolling update, Undo(changes), 일시 정지(pause)와 재개(resume) 등 필요에 따라 동작
+
+#### Definition
+
+`deployment-definition.yaml`
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+  labels:
+    app: myapp
+    type: front-end
+spec:
+  template:
+    metadata:
+      name: myapp-pod
+      labels:
+        app: myapp
+        tier: front-end
+    spec:
+      containers:
+        - name: nginx-container
+          image: nginx
+  replicas: 3
+  selector:
+    matchLabels:
+      type: front-end
+```
+
+`kubectl create -f deployment-definition.yaml`
+
+`kubectl get deployments`
+
+`kubectl get replicaset`
+
+`kubectl get pods`
+
+`kubectl get all`
+
+- pod, replicaset, deployment 모두 조회 가능
+- deployment는 자동으로 pod와 replicaset 생성
+
 
 ## Practice Test - Deployments
 
+`kubectl get all`
+
+- pods, replicaset, deployment 모두 조회 가능
+
+`kubectl create deploy --help`
+
+- 명령어로 deployment 생성 시 사용하는 명령어 조회 가능
+
+
 ## Services
 
+#### Services
+
+- Application 안팎의 다양한 구성 요소 간의 통신이 가능하도록 함
+- Kubernetes의 Service는 Application을 다른 Application 또는 사용자와 연결하는 것을 도움
+- 우리의 Application에는 다양한 pod 존재하는데, 이 pod group 간의 연결을 도와주는 것이 Service
+  - 사용자에게 front end load 제공
+  - 백엔드 프로세스 실행
+  - 외부 데이터 소스에 연결
+
+- Service는 Frontend Application을 최종 사용자가 사용할 수 있게 함
+- 백엔드와 프론트엔드 pod의 통신과 외부 데이터 소스와의 연결을 도와주어, 두 서비스를 쉽게 연결해줌
+
+![alt text](image-21.png)
+
+#### Use case
+
+| 웹 Application을 실행하는 pod로 배포한 상태에서 외부 사용자가 웹 페이지에 접속하는 방법
+
+기본 SetUp
+- Kubernetes Node에는 IP 주소 존재 => `192.168.1.2`
+- 노트북도 같은 네트워크라 IP 주소 => `192.168.1.10`
+- 내부 pod 네트워크는 `10.244.0.0`이고, pod는 `10.244.0.2`에 존재
+- 이때에는 pod가 별도의 네트워크를 사용하기에 접근할 수 없음
+
+웹 페이지를 볼 수 있는 옵션
+
+1. 192.168.1.10에서 Kubernetes Node로 curl 명령어를 줘 웹페지에 접속
+
+`curl http://10.244.0.2`
+
+2. Node에 GUI가 있다면 브라우저를 켜고 브라우저에서 웹페이지 접속
+- 이 방법은 Kubernetes node 내에서 접근하는 것이므로 원하는 방식이 아님
+
+SSH를 사용하지 않고 노트북에서 웹 서버에 액세스하는 방법 (단순히 Kubernetes IP에 액세스)
+
+- 그러기 위해서는 노트북에서 node로의 요청을 매핑하는 것이 필요한데, 이것이 `Service`
+
+#### Service Types
+
+1. NodePort
+
+- Service가 내부 port를 node의 port에서 액세스할 수 있게 함
+
+2. ClusterIP
+
+- 가상 IP를 만들어 다른 service 간의 통신을 가능하게 함
+- Ex. frontend server와 backend server의 통신
+
+3. LoadBalancer
+
+- Cloud Provider를 사용해 load 분산
+Ex. frontend 계층의 다양한 웹 서버에 로드 배포
+
+## Services - NodePort
+
+Service가 Node의 Port에서 pod까지 매핑
+
+![alt text](image-22.png)
+
+3개의 Port 존재 (Service 관점)
+
+1. Pod의 Port (= TargetPort)
+
+- web server가 실행되는 pod의 port
+- Service가 요청을 전달하는 port
+- 아래 그림에서 80
+
+2. Service의 Port (= Port)
+
+- Service는 Node 안의 가상 서버
+- cluster 내부에는 cluster 자체 IP 존재하고, 이를 clsuter IP라 부름
+- 아래 그림에서 80
+
+3. Node의 Port (= NodePort)
+
+- Node 자체의 port
+- 외부에서 웹 서버에 액세스하는 데 사용
+- NodePort는 유효한 범위 내에 존재할 수 있음
+  - 30,000 ~ 32,767
+- 아래 그림에서 30008
+
+![alt text](image-24.png)
+
+- Service Definition File
+  - spec
+    - `type`
+      - NodePort, ClusterIP, LoadBalancer 중 하나
+    - `ports`
+      - ports는 array이기 떄문에 `-` 존재. 하나의 Service에 여러 ports mapping 가능
+      - targetPort: 지정하지 않을 시 port와 동일한 port number로 지정
+      - port: 반드시 지정해야 함
+      - nodePort: 지정하지 않을 시 범위 내(30,000~32,767) 자유 port가 자동으로 지정
+    - `selector`
+      - Service가 도달할 최종 지점의 pod를 가리킴. pod의 labels 아래의 key-value와 연결
+      `pod-definition.yaml`
+      ```
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: myapp-pod
+        labels:
+          app: myapp  #이 부분 !
+          type: front-end
+      spec:
+        containers:
+          - name: nginx-container
+            image: nginx
+      ```
+
+
+`service-definition.yaml`
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+spec:
+  type: NodePort
+  ports:
+    - targetPort: 80
+      port: 80
+      nodePort: 30008
+  selector:
+    app: myapp
+    type: front-end
+```
+
+`kubectl create -f service-definition.yaml`
+
+`kubectl get services`
+
+
+`curl http://192.168.1.2:30008`
+
+- 이 port를 이용해 웹 서비스에 접속할 수 있음
+
+| 위의 경우는 하나의 Pod에 Service가 매핑된 경우이고, pod가 여러 개인 경우(web application이 다중 인스턴스 사용.고가용성과 부하 분산 목적) 존재
+
+- web application을 실행하는 pod가 여러 개
+- 모든 pod는 같은 label을 가짐
+`pod.yaml`
+```
+labels:
+  app: myapp
+```
+`service.yaml`
+```
+selector:
+  app: myapp
+```
+- Service를 생성하면 selector에 따라 app: myapp label을 가지는 pod 여러 개 모두 찾음
+- 그러면 Service는 자동으로 endpoint인 세 개의 pod를 선택해 사용자가 보내는 외부 요청 전달 
+  - 여러 pod 사이의 load 분산 알고리즘 => Random SessionAffinity 알고리즘 사용
+  - 이를 통해 Service는 내장된 LoadBalancer처럼 부하 분산
+
+
+| Pod가 여러 Node에 분산되는 경우
+
+- Cluster 내 분리된 node의 pod에 web application 존재
+- Service는 자동으로 Cluster 내 모든 node에 걸쳐 생성되고, Cluster 내 모든 node에 걸쳐 targetPort가 동일한 Port로 매핑
+
+- 아래 그림에서는 `curl http://192.168.1.2:30008`, `curl http://192.168.1.3:30008`, `curl http://192.168.1.4:30008`로 모두 동일하게 접근 가능
+  - 📍 이때 192.168.1.2와 같은 IP는** Node IP 주소**이고, 30008는 NodePort Service 사용 시 모든 Node의 동일한 port로 요청 수신하기 위해 필요한 port
+    - nodePort는 Kubernetes Service인 NodePort 사용할 때에만 존재하고, 그렇지 않을 때에는 존재하지 않음
+  - curl은 다양한 프로토콜을 사용해 데이터를 전송하는데 사용됨
+    - 위의 curl 명령어로 HTTP GET 요청 전송
+
+![alt text](image-25.png)
+
 ## Services - Cluster IP
+
+
 
 ## Service - Loadbalancer
 
