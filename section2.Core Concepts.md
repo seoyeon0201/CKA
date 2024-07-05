@@ -1173,20 +1173,401 @@ selector:
 
 ## Services - Cluster IP
 
+| Full Stack Web Application은 Application의 다른 부분을 호스팅하는 다른 종류의 pod 존재
 
+- Ex. Front-end, Back-end, Redis(key-value storage)
+- Front-end Server는 Back-end Server와 통신하길 원하고, Back-end Server는 DB와 Redis Service와 통신하기를 바람
+- Application의 이런 Service 또는 Tier 간의 연결을 확립하는 방법 => ClusterIP
+- Pod는 모두 할당된 IP 주소 존재하며 이 IP는 정적이지 않음. 따라서 Application 간의 내부 통신을 이 IP 주소에만 의존할 수는 없음
+
+- Kubernetes Service는 pod를 하나로 묶고, 하나의 Interface를 통해 단체 Pod에 접속할 수 있음
+- Ex. Back-end Pod 3개를 하나로 묶어 Front-end Pod가 이 Service에 액세스할 수 있는 단일 Interface 제공 
+- 요청은 무작위로 한 Pod로 전달
+![alt text](image-26.png)
+
+- 각각의 Service는 Cluster 내부에서 IP와 그에 할당된 이름을 가지며, 다른 Pod가 Service에 접근할 때 그 이름 사용해야 함 => `ClusterIP`
+- Definition File
+  - spec.type
+    - 아무것도 지정하지 않으면 default가 ClusterIP
+  - spec.ports.targetPort
+    - Backend가 노출되는 port
+    - Service가 연결을 전달할 pod 내부의 port 
+  - spec.ports.port
+    - Service가 노출되는 port
+    - cluster 내의 다른 pod나 service가 이 service를 접근할 때 사용하는 port
+
+`service-definition.yaml`
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: back-end
+spec:
+  type: ClusterIP
+  ports:
+    - targetPort: 80
+      port: 80
+  selector:
+    app: myapp
+    type: back-end
+```
+
+=> ClusterIP는 selector를 사용해 여러 개의 pod를 찾고, 해당 pod의 targetPort 포트 번호로 트래픽 전달
 
 ## Service - Loadbalancer
 
+#### Example: Voting App
+
+- NodePort Service로 외부 Application이 Worker node의 pod에 접근 가능하도록 함
+
+![alt text](image-27.png)
+
+- voting-app과 result-app에 집중
+- 사용자가 Application을 처리 가능하게 하기 위해 NodePort Service 사용
+- NodePort Service에서 트래픽을 수신하고 각 pod로 트래픽 전송
+
+![alt text](image-28.png)
+![alt text](image-29.png)
+
+- 이 경우 최종 사용자가 Application에 접근할 때 어떤 URL을 전달해야 하는가?
+  - 📍 Pod가 특정 Node에만 배포되었다고 하더라도, 해당 pod로 **Service를 생성하면 Cluster 내의 모든 Node에서 Service 접근 가능**
+  - 따라서 아래와 같은 모든 url로 접근 가능
+    - voting-app pod는 192.168.56.70, 71에만 배포되었지만, voting app service는 192.168.56.70, 71, 72, 76 모든 Node에서 접근 가능
+
+- 하지만 최종 사용자는 이렇게 많은 URL이 아닌 Service마다의 단일 URL 필요
+  - http://example-vote.com , http://example-result.com
+
+- 단일 URL을 가지는 방법은 
+1. 부하 분산기 목적을 위한 새 VM을 생성하고 적합한 부하 분산기를 설치하고 구성하는 것
+  - Ex. nginx
+2. 기본 Node로 Load Balancer Root Traffic 구성
+
+- 외부 부하 분산을 설정하고 유지 관리를 하는 것은 귀찮은 작업. 따라서 GCP(Google Cloud Platform), AWS, Azure와 같은 Supported Cloud Platform 사용하면 플랫폼의 기본 Load Balance 기능 활용 가능
+- Kubernetes는 기본 부하 분산 통합 지원해 특정 Cloud Provider가 이를 구성
+- 따라서 Service 유형을 front-end service에 맞춰 기존의 NodePort 대신 LoadBalancer로 수정
+  - 단, 이것은 GCP, AWS, Azure와 같이 지원되는 클라우드 플랫폼만 작동
+  - Virtual Box나 다른 환경에서는 지원되지 않음
+  - 지원하지 않는 환경에서 LoadBalancer 타입을 설정하면 NodePort로 동작하고 외부 부하 분산 장치 구성이 안 됨
+  - 추후 클라우드 플랫폼에 Application 배포할 때 동작
+
+`service-definition.yaml`
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+spec:
+  type: LoadBalancer
+  ports:
+    - targetPort: 80
+      port: 80
+      nodePort: 30008
+```
+
+![alt text](image-30.png)
+
 ## Practice Test - Services
+
+`k create service --help`
+
+- service 생성 명령어를 모르는 경우
 
 ## Namespaces
 
+1. Default namespace
+- 현재까지는 Cluster의 Default namespace에 pod, deployment, service 리소스 생성
+2. kube-system
+- 네트워킹 솔루션이나 DNS 서비스에 요구되는 리소스가 존재하는데, 이를 삭제하거나 수정할 수 없게 하기 위해 kubernetes 시작 시 kube-system이라는 이름의 namespace에 생성
+3. kube-public
+- 모든 사용자가 사용할 수 있어야 할 리소스가 생성되는 namespace
+
+| 환경이 작거나 작은 Cluster를 사용하고 있는 경우에는 namespace를 신경 쓸 필요 없음. BUT 기업이나 프로덕션 목적으로 Cluster를 사용할 때에는 namespace 사용을 고려해야 함
+
+#### Namespace - Isolation
+
+- 같은 Cluster 내에서 사용하지만 리소스를 분리하고 싶다면, 다른 namespace 생성
+
+#### Namespace - Policies & Resource Limits
+
+- 각각의 Namespace는 고유한 policy를 가질 수 있음
+  - 누가 뭘 할 수 있는지 정의 
+- 각각의 Namespace에 리소스 할당량을 할당할 수 있음
+  - 각 Namespace는 일정량을 보장받고 허용된 한도 이상을 사용하지 않음
+
+#### DNS
+
+- 같은 Namespace의 리소스를 단순히 이름으로 부를 수 있음
+- `mysql.connect("db-service")`
+
+![alt text](image-31.png)
+
+- 다른 Namespace의 리소스에 도달하고 싶은 경우, 아래와 같이 Namespace 이름을 포함한 별도의 경로를 추가해야 함
+- `mysql.connect("db-service.dev.svc.cluster.local")`
+  - 위는 DNS name을 의미하며, Service가 생성될 때 DNS 항목이 자동으로 이 포맷에 추가되기 때문에 가능
+  - `db-service.dev.svc.cluster.local`
+    - `cluster.local`은 Kubernetes Cluster의 기본 domain 이름
+    - `svc`는 Service를 위한 하위 도메인
+    - `dev`는 Namespace
+    - `db-service`는 Service name
+    ![alt text](image-33.png)
+
+![alt text](image-32.png)
+
+#### Commands - Namespace
+
+`kubectl get pods`
+
+- Default Namespace에 있는 pod만 열거
+
+`kubectl get pods --namespace=kube-system`
+
+- 다른 namespace에 존재하는 pod 열거
+
+`kubectl create -f pod-definition.yaml`
+
+- Definition file로 pod 생성 시 Default Namespace에 생성됨
+
+`kubectl create -f pod-definition.yaml --namespace=dev`
+
+- 다른 namespace에 pod 생성 방법1
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+  namespace: dev  #namespace 지정
+spec:
+  ...  
+```
+
+- 다른 namespace에 pod 생성 방법2
+
+#### Namespace 생성
+
+1. Definition file로 생성
+
+`namespace-dev.yaml`
+```
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+```
+
+`kubectl create -f namespace-dev.yaml`
+
+2. 명령어로 생성
+
+`kubectl create namespace dev`
+
+#### Namespace 변경
+
+- namespace를 영구적으로 전환하여 더는 namespace 옵션을 지정할 필요 없게 할 수 있음
+  - context는 같은 관리 시스템에서 여러 cluster와 여러 환경을 관리하기 위해 사용
+
+`kubectl config set-context ${kubectl config current-context} --namespace=dev`
+
+- 모든 namespace에서의 리소스 조회
+
+`kubectl get pods --all-namespaces`
+
+#### Resource Quota
+
+- Namespace에서 리소스를 제한하려면 리소스 할당량(Resource Quota) 생성
+
+`Compute-quota.yaml`
+```
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota
+  namespace: dev
+spec:
+  hard:
+    pods: "10"
+    requests.cpu: "4"
+    requests.memory: 5Gi
+    limits.cpu: "10"
+    limits.memory: 10Gi
+```
+
+`kubectl create -f compute-quota.yaml`
+
 ## Practice Test - Namespaces
+
+`kubectl get pods --all-namespaces` 또는 `kube get pods -A`
+
+- 모든 namespace에서 리소스 조회
 
 ## Imperative vs Declarative
 
+| 인프라를 코드로 관리하는 세계에서는 인파를 관리하는데 Imperative 접근법과 Declarative 접근법 존재
+
+1. Imperative
+
+- 목적지까지의 경로를 모두 지시
+- 어떻게 할지 명시
+
+2. Declarative
+
+- 최종 목적지 지정
+- 무엇을 할지 명시
+
+#### Infrastructure as Code
+
+1. Imperative
+- 단계적으로 작성된 명령어들의 집합
+
+2. Declarative
+- 요구 사항 선언 
+
+![alt text](image-34.png)
+
+#### Kubernetes
+
+1. Imperative
+
+- kubectl 명령어를 통해 리소스를 생성, 업데이트, 삭제함으로써 인프라를 요구에 어떻게 적용할지 지시
+
+```
+kubectl run --image nginx nginx
+kubectl create deployment --image nginx nginx
+kubectl expose deployment nginx --port 80
+kubectl edit deployment nginx
+kubectl scale deployment nginx --replicas 5
+kubectl set image deployment nginx nginx=nginx:1.18
+kubectl create -f nginx.yaml
+kubectl replace -f nginx.yaml
+kubectl delete -f nginx.yaml
+```
+
+
+2. Declarative
+
+- Kubernetes cluster에서 Application과 Service의 예상 상태를 정의하는 파일 집합 생성
+
+- kubectl apply 명령어를 통해 Kubernetes가 구성 파일을 읽어 인프라를 예상 상태로 가져오려면 뭐가 필요한지 스스로 결정하게 함
+  - kubectl apply는 기존 구성을 보고 시스템에 어떤 변화가 필요한지 알아냄
+  - `kubectl apply -f nginx.yaml`
+
+#### Imperative
+
+1. Imperative Commands
+
+- YAML 파일 없이 명령어만을 사용
+
+  1. Create Objects
+
+  - 새 리소스를 생성하기 위해 run, create, expose 명령
+  ```
+  kubectl run --image nginx nginx
+  kubectl create deployment --image nginx nginx
+  kubectl expose deployment nginx --port 80
+  ```
+
+  2. Update Objects
+
+  - 기존 리소스를 업데이트하기 위해 edit, scale, set 명령
+
+  ```
+  kubectl edit deployment nginx
+  kubectl scale deployment nginx --replicas 5
+  kubectl set image deployment nginx nginx=nginx:1.18
+  ```
+
+- 장점
+  - YAML 파일을 다룰 필요가 없으니 리소스 생성과 수정을 신속히 다룸
+- 단점
+  - 기능에 한계가 있어 고급 기능을 사용하는 경우, 길고 복잡한 명령 수행해야 함 
+    - Ex. Multi Container, Multi Pod, Multi Deployment
+  - 명령어를 실행하고 후에 리소스가 어떻게 만들어졌는지 알아내기 어려움. 사용자의 세션 히스토리에서만 조회 가능
+
+
+2. Imperative Object Configuration Files
+
+- YAML 파일 수정 후 create, edit, replace 명령어 사용
+
+  1. Create Objects
+
+  `kubectl create -f nginx.yaml`
+
+  2. Update Objects
+
+  `kubectl edit deployment nginx`
+  - 이 코드를 진행하면 YAML 파일이 나오는 데, 이 파일은 리소스 생성 시 만든 파일이 아니라 Kubernetes memory 내의 pod의 YAML 파일과 유사
+  - 이 파일을 수정하고 저장하면, 실제 존재하는 리소스에 적용
+  - BUT 이 때의 변경 사항은 어디에도 기록되지 않고 리소스 생성 시 만든 파일은 변경 사항이 적용되지 않은 채 남아있어 업데이트된 리소스와 일치하지 않음
+  
+  `kubectl replace -f nginx.yaml`
+  - 직전 방식보다 nginx.yaml 파일 수정 후 kubectl replace -f 명령어를 사용하는 것이 더 유리
+
+  `kubectl replace --force -f nginx.yaml`
+  - 파일 수정 후 적용할 때 기존의 리소스를 삭제하고 수정된 정보로 리소스 새로 생성
+
+- 이 방법 사용 시 이미 동일한 스펙의 리소스가 존재하는 경우 오류 발생 => 현재 환경 설정을 인지하고 변경하기 전에 확인해야 하기 때문에 복잡
+
+#### Declarative
+
+| 우리가 작업한 YAML 파일 사용. 명령을 생성하거나 대체하는 대신 리소스를 관리하기 위해 kubectl apply 명령어 사용
+
+1. Create Objects
+
+`kubectl apply -f nginx.yaml`
+
+- 정의 파일이 여러 개인 경우, 디렉터리를 경로로 설정해 여러 리소스를 한 번에 생성할 수 있음
+
+`kubectl apply -f /path/to/config-files`
+
+2. Update Objects
+
+`kubectl apply -f nginx.yaml`
+
+- 리소스가 이미 존재한다는 오류나 업데이트가 적용될 수 없다는 오류를 내지 않음
+
+#### Example Tips
+
+- 시험에서는 Imperative Commands 사용하는 것이 유리하므로 많이 연습할 것
+
+- 이미 존재하는 리소스의 속성을 수정해야 하는 경우
+  - `kubectl edit`
+
+- 복잡한 요구 사항을 원하는 경우
+  - 리소스 정의 YAML 파일 사용
+
 ## Practice Test - Imperative Commands
+
+NodePort 생성 시에는 nodePort 포트 번호를 작성해야 하기 때문에 `kubectl create` 명령어가 유리하고, ClusterIP Service 생성 시에는 Selector가 원하는 pod와 일치해야 하기 때문에 `kubectl expose` 명령어가 유리
+
+`kubectl run [POD NAME] --image=[IMAGE NAME] --port=[PORT NUMBER] --expose=true`
+
+- 특정 image와 port 번호를 가지는 Pod와 그 pod의 label을 가지는 Service가 한 번에 생성
 
 ## Kubectl Apply Command
 
-## Quick Reminder
+| Declarative Command 사용 시 사용하는 kubectl apply 명령어가 내부적으로 어떻게 작동하는지. 특히 Imperative Command 사용 시에는 Last applied Configuration이 존재하지 않음 ! apply 사용 시에만 존재
+
+- Local file(작성한 Definition file), Last applied Configuration, Kubernetes 정의 고려
+
+- `kubectl apply` 명령어 실행 시 리소스가 존재하지 않으면 리소스 생성
+  - 리소스 구성은 Local file과 유사하지만 리소스 상태를 저장하기 위한 status 필드 추가해 Kubernetes 성단의 Live object configuration 존재
+
+    ![alt text](image-35.png)
+
+  - 명령어 실행시 우리가 작성한 Local file은 JSON 형식으로 변환되어 Last applied Configuration으로 저장
+  
+    ![alt text](image-36.png)
+
+- 이후 리소스에 대한 업데이트는 세 가지(Local file, Last applied Configuration, Kubernetes)를 비교하여 Live object에 어떤 변화가 있는지 확인
+
+- Local file에서 container의 image를 변경하고 `k apply` 명령어 실행
+  1. Kubernetes의 Live object configuration과 비교. 이때 차이가 있다면 업데이트
+  2. Last applied Configuration 업데이트. Local file에서 삭제된 부분이 있는지도 확인
+
+- 시스템에는 Local file만 존재하고, Live object configuration은 Kubernetes memory에 존재, Last applied Configuration은 Live object configuration에 last-applied-configuration 필드에 존재
+
+  ![alt text](image-37.png)
+
+- 즉, `kubectl apply` 명령어 동작 시 아래의 3개를 비교해 변화 확인 
+
+  ![alt text](image-38.png)
