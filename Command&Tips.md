@@ -63,6 +63,11 @@
 - **pod의 label이 Service의 Selector로 들어가지 않아 수정 필요**
 
 
+`kubectl replace --force -f [YAML]`
+
+- YAML 파일 수정 사항 있는 경우, 이전의 리소스를 삭제하고 다시 생성해야 하는데 replace 명령어가 이를 한 번에 진행시켜줌
+    - 이때 반드시 `--force`가 정상적으로 동작
+
 
 
 ## 명령어
@@ -164,3 +169,55 @@
 
 - 모든 namespace에서 리소스 조회
 
+#### 6. Scheduling (Node)
+
+| Pod를 특정 Node에 위치시키고 싶은 경우, YAML 파일에 nodeName 필드 추가 이후 아래 명령어 수행
+
+1. `kubectl replace --force -f [YAML]`
+    - 이전의 리소스를 제거하고 즉시 재생성
+
+2. 또는 `kubectl delete -f [YAML]`한 후 `kubectl apply -f [YAML]`
+    - 이전의 리소스를 제거한 후 생성 명령어 진행
+
+`kubectl get pods --watch` 
+
+- pod의 상태 변화 모니터링 가능
+
+`kubectl get pods -o wide` 
+
+- 더 많은 정보 조회 가능. 특히 Node 조회 가능
+
+#### 7. Labels and Selectors
+
+`k get pods --selector env=dev`
+
+- label이 env=dev인 pod 탐색
+
+`k get pods --selector env=dev --no-headers | wc -l`
+
+- `wc -l`은 숫자 빠르게 계산해주는 명령어(wc -l: word cound와 line의 축약어). 맨 윗 줄(NAME|READY|STATUS|RESTARTS|AGE)이 출력되지 않도록 `--no-headers` 옵션 사용
+
+`kubectl get all --selector env=prod,bu=finance,tier=frontend`
+
+- 여러 조건을 모두 만족하는 리소스 찾기
+
+#### 8. Taints And Tolerations
+
+`kubectl taint node [NODE NAME] [KEY]=[VALUE]:[EFFECT]`
+
+- Taint 명령어. (Tolerations는 Pod의 Defintion file에 작성)
+
+`kubectl taint node [NODE NAME] [해당 NODE의 TAINTS]-`
+    - Ex. `kubectl taint node controlplane node-role.kubernetes.io/master:NoSchedule-`
+
+- 마지막에 `-`를 붙여 Node의 Taint 제거
+
+#### 9. Node Selector & Node Affinity
+
+`kubectl label nodes [NODE NAME] [LABEL KEY]=[LABEL VALUE]`
+
+- Node에 크기 관련한 label 붙임 (Pod의 Definition file에 nodeSelector 작성)
+
+`kubectl get node [NODE NAME] --show-labels`
+
+- Node가 가지는 label 확인
