@@ -221,3 +221,45 @@
 `kubectl get node [NODE NAME] --show-labels`
 
 - Node가 가지는 label 확인
+
+#### 10. Resource Requirements and Limits
+
+`k edit` 명령어 사용해 requests와 limits를 변경할 수 없지만, 이때 새로운 파일에 변경 사항이 적용되어 `k replace --force -f` 명령어로 변경사항 저장 가능
+
+#### 11. DaemonSets
+
+`kubectl create deployment [DAEMONSET NAME] -n [NAMESPACE] --image=[IMAGE] --dry-run=client -o yaml > daemonset.yaml`
+
+- Daemonset은 replicaset, deployment와 유사한 형태이기 때문에 --dry-run=client -o yaml을 사용해 생성
+- replicas와 strategy 필드 삭제
+
+
+#### 12. Static Pods
+
+
+`kubectl get pod [POD NAME] -o yaml`
+
+- YAML 파일의 ownerReferences의 kind가 Node인 경우 Static pod
+- Static pod는 이름 뒤에 node명이 붙음
+
+`cat /var/lib/kubelet/config.yaml`
+
+- 위 YAML 파일에서 staticPodPath가 static pod의 definition file이 존재하는 경로
+
+`k run [POD NAME] --image [IMAGE NAME] --dry-run=client -o yaml>[YAML FILE NAME]`
+`cp [이동시킬 YAML 파일] [이동할 경로]`
+
+- YAML 파일 생성 후 경로 이동
+
+`kubectl get nodes -o wide`
+`ssh [NODE INTERNAL IP]`
+- 해당 node IP를 확인한 후 이동
+
+(node로 이동 후) `cat /var/lib/kubelet/config.yaml`
+
+- 디렉토리 경로 확인
+
+`cd [디렉토리 경로]`
+(디렉토리 경로로 접근 후) `rm [FILE NAME]`
+
+(node 탈출) `exit`
