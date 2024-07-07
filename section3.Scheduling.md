@@ -481,7 +481,127 @@ Q3
 
 ## Taints and Tolerations vs Node Affinity
 
+
+| 3개의 Node와 3개의 Pod가 각각 세가지 색(green, blue, red)을 가지고 존재. 색을 가지지 않은 2개의 Pod와 2개의 node도 존재. 궁극적인 목표는 blue pod를 blue node에 넣고, green pod를 greed node에 넣고, red pod를 red node에 넣는 것
+
+#### Taints and Tolerations
+
+- 각 Node에 taint, Pod에 toleration 설정
+
+- BUT 이때 toleration을 가진 pod는 해당 node에 들어갈 수 있을 뿐, 무조건 해당 node에 들어가지는 않음 => 문제 발생
+
+#### Node Affinity
+
+- 각 Node에 label 설정
+- Pod selector로 node 지정
+
+- BUT 색상을 가지지 않은 pod가 해당 node에 들어갈 수 있음 => 문제 발생
+
+#### Taints/Tolerations and Node Affinity
+
+| Taints and Tolerations와 Node Affinity를 동시에 사용해 원하는 pod를 원하는 node에 고정
+
+1. Node에 taints, Pod에 tolerations 설정
+2. Node에 label을 붙여 해당 pod가 다른 node에 배치되는 것을 막음
+
+
 ## Resource Requirements and Limits
+
+- Cluster에 3개의 Node 존재한다고 가정
+    - 각 Node에는 사용 가능한 CPU와 Memory 리소스 존재
+
+![alt text](image-42.png)
+
+- Pod를 실행하려면 자원 필요
+     - Ex. Pod 1개 실행 시 CPU 2개와 Memory unit 1개 필요
+- Pod가 Node에 놓일 때마다 해당 Node의 리소스 소비
+- Kube-scheduler가 pod가 배치될 Node 결정
+    - 이때 kube-scheduler는 pod가 요구하는 리소스 양을 고려해 노드 결정
+- Node에 충분한 리소스가 없으면 kube-scheduler는 해당 node에 pod를 두지 않고 다른 node에 pod 배치
+- Pod를 배치할 node가 없는 경우 Pending 상태
+
+#### Resource Requests
+
+- Pod를 만들 때 필요한 CPU와 memory 양을 정할 수 있음
+- container에서 요청한 최소의 CPU나 memory
+- kube-scheduler가 pod를 node에 배치할 때 이 값을 이용해 배치할 수 있는 node 선택
+
+`pod-definition.yml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+    name: simple-webapp-color
+    labels:
+        name: simple-webapp-color
+spec:
+    containers:
+        - name: simple-webapp-color
+          image: simple-webapp-color
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+                memory: "4Gi"
+                cpu: 2
+```
+
+#### Resource - CPU
+
+- 1 CPU는 1 AWS vCPU, 1GCP Core, 1 Azure Core, 1 Hyperthread 의미
+
+#### Memory
+
+- 1 G(Gigabyte) = 1,000,000,000 bytes
+- 1 M(Megabyte) = 1,000,000 bytes
+- 1 K(Kilobyte) = 1,000 bytes
+- 1 Gi(Gibibyte) = 1,073,741,824 bytes
+- 1 Mi(Mebibyte) = 1,048,576 bytes
+- 1 Ki(Kibibyte) = 1,024 bytes
+
+
+#### Resource Limits
+
+- Pod의 리소스 제한
+
+`pod-definition.yml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+    name: simple-webapp-color
+    labels:
+        name: simple-webapp-color
+spec:
+    containers:
+        - name: simple-webapp-color
+          image: simple-webapp-color
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+                memory: "1Gi"
+                cpu: 2
+            limits:
+                memory: "2Gi"
+                cpu: 2
+```
+
+#### Exceed Limits
+
+- Pod가 지정된 limit을 초과하는 경우
+    - CPU
+        - 시스템이 CPU를 조절해 지정된 한도를 넘지 않도로 함
+        - container는 제한 이상의 CPU 리소스를 사용할 수 없음
+    - Memory
+        - container는 제한보다 많은 memory 리소스 사용 가능
+        - 많은 메모리를 소모하면 OOM(Out Of Memory) 오류로 Pod 종료
+
+#### Default Behavior
+
+- 기본적으로 Kubernetes는 CPU나 Memory의 request, limit 없음
+- 어떤 Pod든 Node에서 요구되는 만큼의 자원을 소비하여 리소스 node에서 실행 중인 다른 pod나 프로세스를 종료할 수 있음
+
 
 ## A quick note on editing Pods and Deployments
 
