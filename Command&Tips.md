@@ -263,3 +263,34 @@
 (디렉토리 경로로 접근 후) `rm [FILE NAME]`
 
 (node 탈출) `exit`
+
+#### 13. Logging&Monitoring
+
+| Metrics server 배포 방법
+
+1. 깃에서 metrics-server 배포 파일 클론
+
+`git clone https://github.com/kodekloudhub/kubernetes-metrics-server.git`
+
+2. 해당 파일 들어가서 Metric server 배포
+
+`cd kubernetes-metrics-server`
+`kubectl create -f .`
+
+| Metrics server 사용
+
+`kubectl top node`
+
+- node의 리소스 사용량 조회
+
+`kubectl top pods`
+
+| Application 로그 조회 
+
+`kubectl logs -f [POD NAME]`
+
+- 실시간으로 pod의 container의 로그 조회 가능
+
+`kubectl logs -f [POD NAME] [CONTAINER NAME]`
+
+- 실시간으로 해당 container 로그 조회 가능
