@@ -294,3 +294,36 @@
 `kubectl logs -f [POD NAME] [CONTAINER NAME]`
 
 - 실시간으로 해당 container 로그 조회 가능
+
+#### 14. Rolling Updates & Rollback
+
+
+1. Create
+
+`kubectl create -f [DEPLOYMENT YAML FILE]`
+
+2. Get
+
+`kubectl get deployments`
+
+3. Update
+
+`kubectl apply -f [DEPLOYMENT YAML FILE]`
+
+`kubectl set image deployment/[DEPLOYMENT NAME] [CONTAINER NAME]=[변경할 이미지]`
+
+4. Status
+
+`kubectl rollout status deployment/[DEPLOYMENT NAME]`
+
+- deployment 진행 상태 확인 가능
+
+`kubectl rollout history deployment/[DEPLOYMENT NAME]`
+
+- deployment history 조회 가능
+
+5. Rollback
+
+`kubectl rollout undo deployment/[DEPLOYMENT NAME]`
+
+- 이전 Revision으로 Rollback
