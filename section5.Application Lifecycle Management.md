@@ -217,13 +217,255 @@ Q11
 
 ## Commands and Arguments
 
+| Application(Pod) Commands & Arguments
+| Dockerfile과 Pod definition file의 관계: pod definition file의 `command`는 Dockerfile의 `ENTRYPOINT` 재정의, definition file의 `args`는 Dockerfile의 `CMD 재정의
+
+- 이전에 생성한 docker image로 pod 생성
+    - `docker run --name ubuntu-sleeper ubuntu-sleeper`
+    - 10초 sleep 원하는 경우, `docker run --name ubuntu-sleeper ubuntu-sleeper 10`
+
+- Pod Definition
+    - spec.containers.args
+        - 아까 생성한 docker image 사용할 때, 기본은 5초지만 10초로 변경하고 싶은 경우 argument 명시 => docker run 명령어에 추가된 모든 것은 spec.containers.args에 명시
+    - spec.containers.command
+        - DockerFile의 ENTRYPOINT 변경 시 명시
+
+`pod-definition.yml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+    name: ubuntu-sleeper-pod
+spec:
+    containers:
+        - name: ubuntu-sleeper
+          image: ubuntu-sleeper
+          command: ["sleep2.0"]
+          args: ["10"]
+```
+
+`kubectl create -f pod-definition.yml`
+
+- 이때의 Docker File
+    - ENTRYPOINT: 시작 시 실행되는 명령
+    - CMD: 명령에 전달되는 기본 매개 변수 
+        - 이 CMD는 pod-definition 파일의 args 필드로 재정의 가능
+
+```
+FROM Ubuntu
+ENTRYPOINT ["sleep"]
+CMD ["5"]
+```
+
+
 ## Practice Test - Commands and Arguments
+
+- Definition file에서 command & args 명시
+
+`방법 1`
+```
+spec:
+    containers:
+        - name: ...
+          command: ["sleep","5000"]
+```
+
+`방법 2`
+``` 
+spec:
+    containers:
+        - name: ...
+          command: 
+            - "sleep"
+            - "5000"
+```
+
+---
+
+`k replace --force -f [임시파일]`
+- 이미 생성된 리소스의 YAML 파일에서 command와 argument 수정 시 경고 문자 나옴
+- 이때 변경된 YAML 파일은 임시파일 경로에 존재하므로 해당 파일이 적용되도록 함
+
+`k run [POD NAME] --image=[IMAGE NAME] -- [ARGS1] [ARGS1] ...`
+
+- `--` 뒤에는 내부에서 실행되는 Application을 위한 옵션
+    - 이때 command에 해당하는 --도 반드시 넣어야 함
+    - `k run webapp-green --image=kodekloud/webapp-color -- --color green`
+
+## Configure Environment Variables in Applications
+
+- ENV 속성 하의 모든 항목은 배열의 항목을 나타내는 대시 (`-`) 부터 시작
+- container와 함께 사용 가능한 값
+
+`docker run -e APP_COLOR=pink simple-webapp-color`
+
+`pod-definition.yaml`
+```
+...
+spec:
+    containers:
+        - name: simple-webapp-color
+          image: simple-webapp-color
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_COLOR
+              value: pink
+```
+
+#### ENV Value Type
+
+| ENV 지정 방식은 두 가지
+
+1. key-value 포맷을 이용해 환경 변수 지정
+
+```
+env:
+    - name: APP_COLOR
+      value: pink
+```
+
+2. ConfigMap
+
+- 값을 지정하는 대신 valueFrom 사용
+
+```
+env:
+    - name: APP_COLOR
+      valueFrom:
+        configMapKeyRef:
+```
+
+3. Secrets
+
+```
+env: 
+    - name: APP_COLOR
+      valueFrom:
+        secretKeyRef:
+```
 
 ## Configuring ConfigMaps in Applications
 
+- pod definition file이 많을수록 쿼리 파일에 저장된 환경을 관리하기 어려움
+
+#### ConfigMaps
+
+- Pod definition file에서 environment 정보를 가져와 중앙에서 관리할 수 있음
+- Kubernetes key-vale 쌍의 configuration 데이터를 전달하는 데 사용
+- ConfigMap 구성 후 pod에 configmap을 삽입해 환경 변수로 key-value 값을 사용할 수 있게 함
+    - 환경 변수는 pod의 container 안에 호스팅된 application을 위함
+- 같은 방식으로 configmap 만들지만 다양한 목적으로 사용할 수 있으므로, 이름을 알아보기 쉽게 정해야함
+
+
+#### 1. Create ConfigMaps
+
+1. Imperative => `k create configmap`
+
+- 명령어로 생성
+
+- 1. `k create configmap [CONFIGMAP NAME] --from-literal=[KEY]=[VALUE]`
+    - key-value 직접 지정
+    - 여러 개의 key-value 쌍이 있는 경우, --from-literal 여러 번 사용
+
+- 2. `k create configmap [CONFIGMAP NAME] --from-file=[PATH TO FILE]`
+    - 파일로 구성 데이터 입력
+    - PATH TO FILE의 데이터를 읽고 파일 이름으로 저장
+
+
+2. Declarative => `k create -f`
+
+- definition file로 생성
+
+`config-map.yaml`
+```
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: app-config
+data:
+    APP_COLOR: blue
+    APP_MODE: prod
+```
+
+`k create -f config-map.yaml`
+
+#### 2. Inject into Pod
+
+- Pod definition file
+    - envFrom은 list로, 필요한만큼 환경 변수를 통과할 수 있음
+
+`pod-definition.yaml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+    name: simple-webapp-color
+    labels:
+        name: simple-webapp-color
+spec:
+    containers:
+        - name: simple-webapp-color
+          image: simple-webapp-color
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app-config
+```
+
+#### ConfigMap in Pods
+
+1. ENV
+
+- 직전에 사용
+
+```
+envFrom:
+    - configMapRef:
+        name: app-config
+```
+
+2. SINGLE ENV
+
+```
+env:
+    - name: APP_COLOR
+      valueFrom:
+        configMapRef:
+            name: app-config
+            key: APP_COLOR
+
+```
+
+3. VOLUME
+
+- 데이터를 파일로 volume에 넣는 방법
+
+```
+volumes:
+    - name: app-config-volume
+      configMap:
+        name: app-config
+```
+
+#### View ConfigMaps
+
+`k get configmaps`
+- configmap 조회
+
+`k describe configmap [CONFIGMAP NAME]`
+- configmap 상세조회
+    - 이 때 key, value 모두 조회 가능 
+
 ## Practice Test - Environment Variables
 
+`k create configmap [CONFIGMAP NAME] --from-literal=[KEY]=[VALUE]`
+
+
 ## Configure Secrets in Applications
+
+
 
 ## Practice Test - Secrets
 

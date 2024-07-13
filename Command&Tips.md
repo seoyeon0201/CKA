@@ -327,3 +327,48 @@
 `kubectl rollout undo deployment/[DEPLOYMENT NAME]`
 
 - 이전 Revision으로 Rollback
+
+#### 15. Commands & Arguments
+
+- Definition file에서 command & args 명시
+
+`방법 1`
+```
+spec:
+    containers:
+        - name: ...
+          command: ["sleep","5000"]
+```
+
+`방법 2`
+``` 
+spec:
+    containers:
+        - name: ...
+          command: 
+            - "sleep"
+            - "5000"
+```
+
+---
+
+`k replace --force -f [임시파일]`
+- 이미 생성된 리소스의 YAML 파일에서 command와 argument 수정 시 경고 문자 나옴
+- 이때 변경된 YAML 파일은 임시파일 경로에 존재하므로 해당 파일이 적용되도록 함
+
+`k run [POD NAME] --image=[IMAGE NAME] -- [ARGS1] [ARGS1] ...`
+
+- `--` 뒤에는 내부에서 실행되는 Application을 위한 옵션
+    - 이때 command에 해당하는 --도 반드시 넣어야 함
+    - `k run webapp-green --image=kodekloud/webapp-color -- --color green`
+
+#### 16. Environment Variables
+
+1. ConfigMap
+
+| ConfigMap = cm
+
+`k create configmap [CONFIGMAP NAME] --from-literal=[KEY]=[VALUE]`
+
+2. Secret
+
