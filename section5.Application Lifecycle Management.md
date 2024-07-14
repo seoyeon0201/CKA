@@ -465,6 +465,168 @@ volumes:
 
 ## Configure Secrets in Applications
 
+#### Web-MySQL Application
+
+| MySQL DB에 연결된 Python web application
+
+- 성공적인 application은 SUCCESS 메세지 보여줌
+
+- host name과 user name, password 코드 존재
+    - 코드에 중요 정보를 담기에 좋지 않음
+    - config 데이터를 ConfigMap에 옮겨 사용
+    - ConfigMap은 일반 텍스트 형식으로 구성 데이터 저장 => DB_Host name, User name을 저장하기에는 괜찮지만, password를 저장하기에는 적합하지 않음 => **Secret 사용**
+
+`app.py`
+```
+import os
+from flask import Flask
+
+app = Flask(_name_)
+
+@app.route("/")
+def main():
+    mysql.connector.connect(host='host', database='mysql', user='root', password='paswrd')
+
+    return render_template('hello.html', color=fetchcolor())
+
+if _name_=="_main_":
+    app.run(host="0.0.0.0", port=8080")
+```
+
+#### Secret
+
+- password나 key 같은 민감한 정보를 저장하는 데 사용
+- 인코딩 형식으로 저장되는 것 제외하면 ConfigMap과 유사
+
+`Secret`
+```
+DB_Host: mysql
+DB_User: root
+DB_Password: paswrd
+```
+
+
+1. Create Secret
+- 1. Imperative
+    - `kubectl create secret generic [SECRET NAME] --from-literal=[KEY]=[VALUE]`
+    - `kubectl create secret generic [SECRET NAME] --from-file=[PATH TO FILE]`
+
+- 2. Declarative
+    - `kubectl create -f [YAML FILE NAME]`
+    
+    `secret-data.yaml`
+    ```
+    apiVersion: v1
+    kind: Secret
+    metadata:
+        name: app-secret
+    data:
+        DB_Host: mysql
+        DB_User: root
+        DB_Password: paswrd
+    ```
+
+
+| 위에서는 데이터를 일반 텍스트로 명시했는데 안전하지 않음 => 인코딩된 형식의 secret 값 지정해야 하며 인코딩된 형식으로 데이터 지정해야 함
+
+- 일반 텍스트에서 인코딩된 형식으로 데이터 변환하는 방법
+    - Linux 호스트에서 `echo -n` 명령어를 실행하면 변환하려는 텍스트 나옴
+
+```
+DB_Host: bXlzcWw=
+DB_User: cm9vdA==
+DB_Password: cGFzd3Jk
+```
+
+`echo -n 'mysql' | base64` => bXlzcWw= 출력
+
+2. Inject into Pod
+
+`pod-definition.yaml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+    name: simple-webapp-color
+    labels:
+        name: simple-webapp-color
+spec:
+    containers:
+        - name: simple-webapp-color
+          image: simple-webapp-color
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: app-secret    #secret name
+```
+
+- 1. ENV
+```
+envFrom: 
+    - secretRef:
+        name: app-config
+```
+
+- 2. SINGLE ENV
+
+```
+env:
+    - name: DB_Password
+      valueFrom:
+        secretKeyRef:
+            name: app-secret
+            key: DB_Password
+```
+
+- 3. VOLUME
+    - Pod의 volume에 secret 담음
+    - Secret의 각각의 key 값은 파일로 생성 => `ls /opt/app-secret-volumes`에서 조회 가능
+        - `cat /opt/app-secret-volumes/DB_Password` => 여기에서는 그 안에 암호 존재
+
+```
+volumes:
+    - name: app-secret-volume
+      secret: 
+        secretName: app-secret
+```
+
+#### Note on Secrets
+
+- Secret은 encrypted(암호화)되어 있지 않음
+    - encode(암호화)만 되어 있음
+    - 누구든 secret 파일을 볼 수 있고 secret 개체 얻을 수 있고 데이터를 볼 수 있음
+    - 따라서 GitHub와 같은 코드 업로드 시 secret definition file을 넣으면 안 됨 => 디코드해 기본 암호가 무엇인지 알 수 있음
+
+- Secret은 ETCD에 encrypted 암호화되어 있지 않음
+    - ETCD의 어떤 데이터도 기본값으로 암호화되어 있지 않음
+    - Encrypting Secret Data at Rest 고려해야 함 => EncryptionConfiguration
+        - kube-api server에 옵션으로 통과시킬 수 있음
+        - 특정 리소스를 대상으로 EncryptionConfiguration 할 수 있음
+        - Ex. Secret만 암호화 `resources.resources.secrets`
+
+- 같은 namespace에 pod나 deployment를 생성할 수 있는 누구나 Secret에 접근할 수 있음
+    - RBAC을 구성해 액세스 제한 고려해야 함
+
+- third-party secret store provider 고려해야 함
+    - AWS Provider, Azure Provider, GCP Provider, Vault Provider
+    - 이를 사용하면 Secret은 ETCD가 아닌 외부 secret store provider에 저장되고, 이들이 보안의 대부분 처리
+
+#### View Secrets
+
+`kubectl get secrets`
+
+`kubectl describe secrets [SECRET NAME]`
+- 데이터를 직접 보여주지 않음 => 암호화된 값 보여줌 
+
+`kubectl get secret [SECRET NAME] -o yaml`
+- 데이터를 직접 보여주지 않음 => 암호화된 값 보여줌
+
+#### Decode Secrets
+
+`echo -n 'bXlzcWw=' | base64 --decode` => mysql 출력
+`echo -n 'cm9vdA==' | base64 --decode` => root
+`echo -n 'cGFzd3Jk' | base64 --decode` => paswrd
 
 
 ## Practice Test - Secrets
