@@ -294,3 +294,100 @@
 `kubectl logs -f [POD NAME] [CONTAINER NAME]`
 
 - 실시간으로 해당 container 로그 조회 가능
+
+#### 14. Rolling Updates & Rollback
+
+
+1. Create
+
+`kubectl create -f [DEPLOYMENT YAML FILE]`
+
+2. Get
+
+`kubectl get deployments`
+
+3. Update
+
+`kubectl apply -f [DEPLOYMENT YAML FILE]`
+
+`kubectl set image deployment/[DEPLOYMENT NAME] [CONTAINER NAME]=[변경할 이미지]`
+
+4. Status
+
+`kubectl rollout status deployment/[DEPLOYMENT NAME]`
+
+- deployment 진행 상태 확인 가능
+
+`kubectl rollout history deployment/[DEPLOYMENT NAME]`
+
+- deployment history 조회 가능
+
+5. Rollback
+
+`kubectl rollout undo deployment/[DEPLOYMENT NAME]`
+
+- 이전 Revision으로 Rollback
+
+#### 15. Commands & Arguments
+
+- Definition file에서 command & args 명시
+
+`방법 1`
+```
+spec:
+    containers:
+        - name: ...
+          command: ["sleep","5000"]
+```
+
+`방법 2`
+``` 
+spec:
+    containers:
+        - name: ...
+          command: 
+            - "sleep"
+            - "5000"
+```
+
+---
+
+`k replace --force -f [임시파일]`
+- 이미 생성된 리소스의 YAML 파일에서 command와 argument 수정 시 경고 문자 나옴
+- 이때 변경된 YAML 파일은 임시파일 경로에 존재하므로 해당 파일이 적용되도록 함
+
+`k run [POD NAME] --image=[IMAGE NAME] -- [ARGS1] [ARGS1] ...`
+
+- `--` 뒤에는 내부에서 실행되는 Application을 위한 옵션
+    - 이때 command에 해당하는 --도 반드시 넣어야 함
+    - `k run webapp-green --image=kodekloud/webapp-color -- --color green`
+
+#### 16. Environment Variables
+
+1. ConfigMap
+
+| ConfigMap = cm
+
+`k create configmap [CONFIGMAP NAME] --from-literal=[KEY]=[VALUE]`
+
+2. Secret
+
+`kubectl create secret generic [SECRET NAME] --from-literal=[KEY]=[VALUE]`
+
+#### 17. Multi-Container
+
+`k -n elastic-stack exec -it app -- cat /log/app.log`
+    
+- `exec`: 지정된 pod 내에서 명령어 실행
+- `-i`: 표준 입력 활성화해 터미널에서 명령어 입력할 수 있도록 함
+- `-t`: 터미널 할당해 터미널에서 실행하는 것과 같은 환경 제공
+
+
+`k edit pod [POD NAME]` > `k replace --force -f [YAML FILE]`
+
+#### 18. Init-Container
+
+`k logs [POD NAME] -c [CONTAINER NAME]`
+
+- container 로그 확인
+
