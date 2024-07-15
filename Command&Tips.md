@@ -372,3 +372,22 @@ spec:
 
 2. Secret
 
+`kubectl create secret generic [SECRET NAME] --from-literal=[KEY]=[VALUE]`
+
+#### 17. Multi-Container
+
+`k -n elastic-stack exec -it app -- cat /log/app.log`
+    
+- `exec`: 지정된 pod 내에서 명령어 실행
+- `-i`: 표준 입력 활성화해 터미널에서 명령어 입력할 수 있도록 함
+- `-t`: 터미널 할당해 터미널에서 실행하는 것과 같은 환경 제공
+
+
+`k edit pod [POD NAME]` > `k replace --force -f [YAML FILE]`
+
+#### 18. Init-Container
+
+`k logs [POD NAME] -c [CONTAINER NAME]`
+
+- container 로그 확인
+

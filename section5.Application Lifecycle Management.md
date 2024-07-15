@@ -631,12 +631,258 @@ volumes:
 
 ## Practice Test - Secrets
 
+
+Q7. Pod에 Secret 적용
+
+`k edit pod [POD NAME]` (이때 새 파일 생성됨) > `k replace --force -f [YAML FILE]`
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: envfrom-secret
+spec:
+  containers:
+  - name: envars-test-container
+    image: nginx
+    envFrom:
+    - secretRef:
+        name: test-secret
+```
+
+
 ## Demo: Encrypting Secret Data at Rest
+
+#### KodeKloud에서 Kubernetes single-node를 사용해 작업할 환경 생성
+
+1. Secret 생성
+
+`kubectl create secret generic my-secret --from-literal=key1=supersecret`
+
+2. Secret 조회
+
+- 암호로 인코딩된 형식의 데이터 조회 가능
+- 누구나 암호를 해독해 secret 조회 가능
+
+3. Decode
+
+`echo "[SECRET에서 조회한 인코딩된 형식의 데이터]" | base64 --decode`
+
+- 즉, secret의 데이터는 base64로 인코딩 
+
+#### ETCD server에 데이터가 어떻게 저장되는지에 초점 맞출 것. ETCD는 pod 내에서 실행하므로 exec으로 검색할 수 있고, 그 안에서 etcdctl을 사용할 수 있고, 또는 control plane node에서 로컬로 실행하고 싶다면 etcd-client 사용
+
+
+
+```
+ETCDCTL_API=3 etcdctl \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt    \
+    --cert=/etc/kubernetes/pki/etcd/server.crt  \
+    --key=/etc/kubernetes/pki/etcd/server.key   \
+    get /registry/secrets/default/[SECRET NAME] | hexdump -C
+```
+
+1. etcdctl command가 있는지 확인 (없는 경우 설치)
+
+`etcdctl`
+    - etcdctl 명령어 존재하는지 확인 
+
+`apt-get install etcd-client`로 etcd 명령어 설치
+
+`k get pods -n kube-system`
+    - etcdctl utility는 pod로 동작
+
+2. etcd에 저장된 데이터 조회
+
+- 인증서 파일(ca.crt) 필요
+    - `ls /etc/kubernetes/pki/etcd/ca.crt`
+- 아래 명령어 실행
+    - etcd 내에서의 상태 확인
+
+```
+ETCDCTL_API=3 etcdctl \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt    \
+    --cert=/etc/kubernetes/pki/etcd/server.crt  \
+    --key=/etc/kubernetes/pki/etcd/server.key   \
+    get /registry/secrets/default/my-secret | hexdump -C
+```
+
+    - `hexdump -C` 명령어를 추가해 저장된 데이터를 올바른 형식으로 보여줌
+    - 데이터는 암호화되지 않은 포맷으로 저장됨
+    - 따라서 접근할 수 있는 누구나 secret을 조회할 수 있고 이것을 해결하는 것이 관건 !
+
+#### Secret을 아무나 볼 수 없도록 암호화 활성화
+
+| 이 부분이 암호화 진행 과정
+
+1. kube-apiserver에 encryption이 활성화되어 있는지 확인
+
+- encryption at rest가 활성화되도록 설정하는 것이 목표이므로 처음에는 설정되어 있지 않아야 함
+
+- 방법1. `ps -aux | grep kube-api`로 kube-apiserver 조회
+
+    - kube-api server 프로세스가 실행되고 `--encryption-provider-config` 옵션이 있는지 확인
+    - `ps -aux | grep kube-api | grep "encryption-provider-config"`
+            - 결과를 반환하지 않으므로 존재하지 않음
+
+- 방법2. kubeadm 구성을 확인하여 조회할 수 있음
+    - `cat /etc/kubernetes/manifests/kube-apiserver.yaml`
+
+
+2. EncryptionConfiguration 정의 파일 생성
+
+- Definition file
+    - `resources.resources`에서 어떤 리소스를 암호화하여 저장할지 결정
+    - `resources.providers`에서 사용할 암호화 알고리즘 선택
+        - 이때 순서가 중요한데, 처음에 나온 provider로 암호화한 후 이후에 나온 provider로 암호화 풀 수 있음
+        - `identity`: 아무것도 암호화하지 않음
+
+    - 아래 코드에서는 aescbc 암호화 provider 사용
+        - `resources.providers.aescbc.keys.secret`에서 32byte의 key 필요 
+            - `head -c 32 /dev/urandom | base64` 출력 값 대입
+
+
+`vim enc.yaml`
+
+```
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: <BASE 64 ENCODED SECRET>
+      - identity: {} # REMOVE THIS LINE
+
+```
+
+3. kube-apiserver에 --encryption-provider-config 옵션으로 방금 생성한 encryptionconfiguration 파일 삽입
+
+- volume에 넣어야 하므로 path 생성해 방금 생성한 파일 이동
+    - `mkdir /etc/kubernetes/enc` > `mv enc.yaml /etc/kubernetes/enc/`
+    - 확인 => `ls /etc/kubernetes/enc`
+
+- `vi /etc/kubernetes/manifests/kube-apiserver.yaml`에 아래 코드 추가
+    - `--encryption-provider-config=/etc/kubernetes/enc/enc.yaml`으로 암호 구성 파일이 어디 있는지 알려줌 
+    - pod 안에 디렉토리가 존재(volume)하고, yaml 파일은 로컬에서 사용 가능하며 내부에서 사용 가능
+    - 코드 추가만 하면 자동으로 kube-apiserver가 재시작됨
+        - kube-apiserver의 상태를 보고 싶은 경우, containerD를 사용하기 때문에 crictl pods로 조회
+
+```
+...
+spec:
+  containers:
+  - command:
+    - kube-apiserver
+    ...
+    - --encryption-provider-config=/etc/kubernetes/enc/enc.yaml    # add this line
+
+    volumeMounts:                                                   
+    ...
+    - name: enc                           # add this line
+      mountPath: /etc/kubernetes/enc      # add this line
+      readOnly: true                      # add this line
+    ...
+  volumes:
+  ...
+  - name: enc                             # add this line
+    hostPath:                             # add this line
+      path: /etc/kubernetes/enc           # add this line
+      type: DirectoryOrCreate             # add this line
+```
+
+4. kube apiserver 조회
+
+`ps aux | grep kube-api | grep encry`
+- 암호화되어 있는지 확인
+
+5. 새로운 secret 생성
+
+
+`k create secret generic my-secret-2 --from-literal=key2=topsecret`
+
+- 아래 명령어로 etcd 내에서 상태 확인 
+
+```
+ETCDCTL_API=3 etcdctl \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt    \
+    --cert=/etc/kubernetes/pki/etcd/server.crt  \
+    --key=/etc/kubernetes/pki/etcd/server.key   \
+    get /registry/secrets/default/my-secret-2 | hexdump -C
+```
+
+- 이때 기존에 이미 존재하는 my-secret은 암호화되지 않고, 암호화 생성 후 새로 생성한 secret만 암호화
+    - `kubectl get secrets --all-namespaces -o json | kubectl replace -f -` 명령어로 기존 secret 포함한 모든 secret 암호화 가능
+
 
 ## Multi Container Pods
 
+- Monolithic application은 microservice라는 독립적이고 작은 재사용 가능 set를 개발 및 배포할 수 있음
+- 이 아키텍처(MSA)는 scale up, down에 도움을 주고, 요구에 따라 개별 service를 수정할 수 있음
+
+- 하지만 Web Server와 Log Agent처럼 두 가지 서비스가 필요할 수 있음
+    - 함께 장착된 web server instance당 agent instance 하나 필요
+    - BUT 도구 서비스(Log Agent) 코드를 병합하고 로드하는 것은 바람직하지 않음
+
+- 이때 Multi-Container Pod 사용
+    - 같은 Lifecycle
+        - 함께 생성되고 함께 파괴됨
+    - 같은 네트워크 공간 공유
+        - 서로 로컬 호스트라 부를 수 있음
+    - 같은 storage volume에 액세스 가능
+
+`pod-definition.yaml`
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: simple-webapp
+  labels:
+    name: simple-webapp
+spec:
+  containers:
+  - name: simple-webapp
+    image: simple-webapp
+    ports:
+        - containerPort: 8080
+  - name: log-agent
+    image: log-agent
+```
+
 ## Practice Test - Multi Container Pods
+
+| ElasticSearch는 log, Kibana는 UI 다룸
+
+Q7
+
+`k logs app -n elastic-stack`
+
+또는
+
+`k -n elastic-stack exec -it app -- cat /log/app.log`
+    
+- `exec`: 지정된 pod 내에서 명령어 실행
+- `-i`: 표준 입력 활성화해 터미널에서 명령어 입력할 수 있도록 함
+- `-t`: 터미널 할당해 터미널에서 실행하는 것과 같은 환경 제공
+
+Q8
+
+`k edit pod [POD NAME]` > `k replace --force -f [YAML FILE]`
+
 
 ## InitContainers
 
+- Pod가 처음 생성될 때 한 번만 실행
+- 실제 Application이 시작되기 전에 외부 서비스나 데이터베이스가 작동하기를 기다리는 프로세스
+- Pod가 처음 생성되면 initContainer가 실행되고, initContainer의 프로세스는 Application을 호스팅하는 실제 container가 시작되기 전에 완료되어야 함
+- initContainer는 여러 개가 가능하고 하나라도 완료되지 않으면 Kubernetes는 initContainer가 성공할 때까지 Pod를 반복적으로 재시작
+
+
 ## Practice Test - InitContainers
+
+Q9
+
+`k logs [POD NAME] -c [CONTAINER NAME]`
