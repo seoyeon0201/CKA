@@ -391,3 +391,27 @@ spec:
 
 - container 로그 확인
 
+## Section6 명령어
+
+#### 1. OS Upgrades
+
+`k drain [NODE NAME] --ignore-daemonsets`
+
+- Node 다운하는 경우 node에 존재하는 모든 pod를 다른 node에 evict시킴
+- Unschedulable 상태
+
+`k uncordon [NODE NAME]`
+
+- 다운되고 다시 node가 정상이 되면 uncordon해야 다시 pod 스케쥴링할 수 있음
+- Schedulable 상태
+
+`k cordon [NODE NAME]`
+
+- drain과 uncordon 사이에는 cordon 존재
+- 단순히 node에 scheduling만 안 되도록 설정하고 내부의 pod는 건드리지 않음
+- Unschedulable 상태
+
+
+#### 2. Cluster Upgrades
+
+#### 3. Backup and Restore
