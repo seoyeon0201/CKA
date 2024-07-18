@@ -273,12 +273,243 @@ Kubernetes API Version
 
 ## Demo - Cluster upgrade
 
+| 참고: <https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/>
 
+1. Package Repository 변경
 
+| 위 동작을 모든 worker node에서도 진행 => `ssh [NODE NAME]`으로 해당 node에 접근
+
+- package를 담은 repository 변경
+
+- `cat /etc/*release*`
+
+  - Debian, Ubuntu OS라 명시되었기 때문에 해당 OS를 기준으로 진행
+  - 참고: <https://kubernetes.io/blog/2023/08/15/pkgs-k8s-io-introduction/>
+
+  - 1. `echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+    - 위 명령어에서 원하는 버전으로 변경
+
+  - 2. `curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+    - 위 명령어에서 원하는 버전으로 변경
+
+  - 3. `sudo apt-get update`
+
+2. 업그레이드할 버전 설치 및 조회
+
+```
+sudo apt update
+sudo apt-cache madison kubeadm
+```
+
+3. Control plane node 업그레이드
+
+- 1. kubeadm 업그레이드
+
+  - 아래 명령어에서 원하는 버전으로 수정
+  - 업그레이드 후 `kubeadm version`으로 확인
+
+  ```
+  sudo apt-mark unhold kubeadm && \
+  sudo apt-get update && sudo apt-get install -y kubeadm='1.30.x-*' && \
+  sudo apt-mark hold kubeadm
+  ```
+
+- 2. `sudo kubeadm upgrade plan`
+
+  - cluster를 업그레이드할 수 있는 다양한 버전 조회 가능
+  - 호환성 문제가 없는지 확실히 하는 목적
+  - **kubelet은 직접 업그레이드해야 함**
+
+- 3. `sudo kubeadm upgrade apply v1.28.8`
+
+  - 원하는 버전으로 변경
+  - 업그레이드 과정 수행
+
+  - 이 과정 완료한 후 `kubectl get nodes`의 VERSION은 아직 변하지 않는데, 이는 kubelet 버전을 가져오기 때문
+
+- 4. kubelet & kubectl 업그레이드
+
+  - `k drain controlplane --ignore-daemonsets`
+    - kubelet 업그레이드 이전에 존재하는 리소스를 모두 옮겨야 함
+  - kubelet과 kubectl 업그레이드
+
+    - 아래 명령어에서 원하는 버전으로 변경
+
+    ```
+    sudo apt-mark unhold kubelet kubectl && \
+    sudo apt-get update && sudo apt-get install -y kubelet='1.30.x-*' kubectl='1.30.x-*' && \
+    sudo apt-mark hold kubelet kubectl
+    ```
+
+  - kubelet 재시작
+
+    ```
+    sudo systemctl daemon-reload
+    sudo systemctl restart kubelet
+    ```
+
+  - `k uncordon controlplane`
+    - 리소스 스케쥴링 가능하도록 설정
+
+4. Worker node 업그레이드
+
+| `ssh [NODE NAME]`으로 접근
+
+- 1. kubeadm 업그레이드
+
+  - 아래 명령어에서 원하는 버전으로 수정
+  - 업그레이드 후 `kubeadm version`으로 확인
+
+  ```
+  sudo apt-mark unhold kubeadm && \
+  sudo apt-get update && sudo apt-get install -y kubeadm='1.30.x-*' && \
+  sudo apt-mark hold kubeadm
+  ```
+
+- 2. `sudo kubeadm upgrade node`
+
+  - Controlplane node는 `sudo kubeadm upgrade apply v1.28.8`. Worker node와 다름
+
+- 3. kubelet & kubectl 업그레이드
+
+  - `k drain [NODE NAME] --ignore-daemonsets`
+    - kubelet 업그레이드 이전에 존재하는 리소스를 모두 옮겨야 함
+  - kubelet과 kubectl 업그레이드
+
+    - 아래 명령어에서 원하는 버전으로 변경
+
+    ```
+    sudo apt-mark unhold kubelet kubectl && \
+    sudo apt-get update && sudo apt-get install -y kubelet='1.30.x-*' kubectl='1.30.x-*' && \
+    sudo apt-mark hold kubelet kubectl
+    ```
+
+  - kubelet 재시작
+
+    ```
+    sudo systemctl daemon-reload
+    sudo systemctl restart kubelet
+    ```
+
+  - `k uncordon [NODE NAME]`
+    - 리소스 스케쥴링 가능하도록 설정
 
 ## Practice Test - Cluster upgrade
 
+Q1
+
+`kubectl get nodes`
+
+- kubernetes 버전 확인 가능
+
+Q3
+
+`kubectl describe node | grep Taints`
+
+- node들의 Taints 조회 가능
+
+Q7
+
+`kubeadm upgrade plan`
+
+- kubeadm 버전 확인
+
+Q9
+
+1. Package Repository 변경
+
+- **안해도 됨 !! 이미 존재**
+- 다음 단계 명령어(sudo apt update, sudo apt-cache madison kubeadm)에서 확인
+
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+`curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+2. kubeadm 업그레이드
+
+```
+sudo apt update
+sudo apt-cache madison kubeadm
+```
+
+```
+sudo apt-mark unhold kubeadm && \
+sudo apt-get update && sudo apt-get install -y kubeadm='1.30.0-*' && \
+sudo apt-mark hold kubeadm
+```
+
+`kubeadm version`
+
+`sudo kubeadm upgrade plan`
+
+`sudo kubeadm upgrade apply v1.30.0`
+
+3. kubelet & kubectl 설치
+
+`kubectl drain <node-to-drain> --ignore-daemonsets`
+
+```
+sudo apt-mark unhold kubelet kubectl && \
+sudo apt-get update && sudo apt-get install -y kubelet='1.30.0-*' kubectl='1.30.0-*' && \
+sudo apt-mark hold kubelet kubectl
+```
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+```
+
+`kubectl uncordon <node-to-uncordon>`
+
+Q11
+
+1. `k drain [NODE NAME] --ignore-daemonsets`
+
+2. node01에 접근
+
+`ssh node01`
+
+3. Package Repository 변경
+
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+`curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+4. kubeadm 업그레이드
+
+```
+sudo apt-mark unhold kubeadm && \
+sudo apt-get update && sudo apt-get install -y kubeadm='1.30.0-*' && \
+sudo apt-mark hold kubeadm
+```
+
+`sudo kubeadm upgrade node`
+
+- exit
+
+5. kubelet & kubectl 설치
+
+`kubectl drain <node-to-drain> --ignore-daemonsets`
+
+- 다시 `ssh node01`
+
+```
+sudo apt-mark unhold kubelet kubectl && \
+sudo apt-get update && sudo apt-get install -y kubelet='1.30.0-*' kubectl='1.30.0-*' && \
+sudo apt-mark hold kubelet kubectl
+```
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+```
+
+`kubectl uncordon node01`
+
 ## Backup and Restore Methods
+
 
 ## Practice Test - Backup and Restore
 

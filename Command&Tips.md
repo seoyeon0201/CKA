@@ -414,4 +414,116 @@ spec:
 
 #### 2. Cluster Upgrades
 
+
+Q1
+
+`kubectl get nodes`
+
+- kubernetes 버전 확인 가능
+
+Q3
+
+`kubectl describe node | grep Taints`
+
+- node들의 Taints 조회 가능
+
+Q7
+
+`kubeadm upgrade plan`
+
+- kubeadm 버전 확인
+
+
+Q9
+
+1. Package Repository 변경
+
+- **안해도 됨 !! 이미 존재**
+- 다음 단계 명령어(sudo apt update, sudo apt-cache madison kubeadm)에서 확인
+
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+`curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+2. kubeadm 업그레이드
+
+```
+sudo apt update
+sudo apt-cache madison kubeadm
+```
+
+```
+sudo apt-mark unhold kubeadm && \
+sudo apt-get update && sudo apt-get install -y kubeadm='1.30.0-*' && \
+sudo apt-mark hold kubeadm
+```
+
+`kubeadm version`
+
+`sudo kubeadm upgrade plan`
+
+`sudo kubeadm upgrade apply v1.30.0`
+
+3. kubelet & kubectl 설치
+
+`kubectl drain <node-to-drain> --ignore-daemonsets`
+
+```
+sudo apt-mark unhold kubelet kubectl && \
+sudo apt-get update && sudo apt-get install -y kubelet='1.30.0-*' kubectl='1.30.0-*' && \
+sudo apt-mark hold kubelet kubectl
+```
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+```
+
+`kubectl uncordon <node-to-uncordon>`
+
+Q11
+
+1. `k drain [NODE NAME] --ignore-daemonsets`
+
+2. node01에 접근
+
+`ssh node01`
+
+3. Package Repository 변경
+
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+`curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+4. kubeadm 업그레이드
+
+```
+sudo apt-mark unhold kubeadm && \
+sudo apt-get update && sudo apt-get install -y kubeadm='1.30.0-*' && \
+sudo apt-mark hold kubeadm
+```
+
+`sudo kubeadm upgrade node`
+
+- exit
+
+5. kubelet & kubectl 설치
+
+`kubectl drain <node-to-drain> --ignore-daemonsets`
+
+- 다시 `ssh node01`
+
+```
+sudo apt-mark unhold kubelet kubectl && \
+sudo apt-get update && sudo apt-get install -y kubelet='1.30.0-*' kubectl='1.30.0-*' && \
+sudo apt-mark hold kubelet kubectl
+```
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+```
+
+`kubectl uncordon node01`
+
 #### 3. Backup and Restore
