@@ -391,3 +391,177 @@ spec:
 
 - container 로그 확인
 
+## Section6 명령어
+
+#### 1. OS Upgrades
+
+`k drain [NODE NAME] --ignore-daemonsets`
+
+- Node 다운하는 경우 node에 존재하는 모든 pod를 다른 node에 evict시킴
+- Unschedulable 상태
+
+`k uncordon [NODE NAME]`
+
+- 다운되고 다시 node가 정상이 되면 uncordon해야 다시 pod 스케쥴링할 수 있음
+- Schedulable 상태
+
+`k cordon [NODE NAME]`
+
+- drain과 uncordon 사이에는 cordon 존재
+- 단순히 node에 scheduling만 안 되도록 설정하고 내부의 pod는 건드리지 않음
+- Unschedulable 상태
+
+
+#### 2. Cluster Upgrades
+
+
+Q1
+
+`kubectl get nodes`
+
+- kubernetes 버전 확인 가능
+
+Q3
+
+`kubectl describe node | grep Taints`
+
+- node들의 Taints 조회 가능
+
+Q7
+
+`kubeadm upgrade plan`
+
+- kubeadm 버전 확인
+
+
+Q9
+
+1. Package Repository 변경
+
+- **안해도 됨 !! 이미 존재**
+- 다음 단계 명령어(sudo apt update, sudo apt-cache madison kubeadm)에서 확인
+
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+`curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+2. kubeadm 업그레이드
+
+```
+sudo apt update
+sudo apt-cache madison kubeadm
+```
+
+```
+sudo apt-mark unhold kubeadm && \
+sudo apt-get update && sudo apt-get install -y kubeadm='1.30.0-*' && \
+sudo apt-mark hold kubeadm
+```
+
+`kubeadm version`
+
+`sudo kubeadm upgrade plan`
+
+`sudo kubeadm upgrade apply v1.30.0`
+
+3. kubelet & kubectl 설치
+
+`kubectl drain <node-to-drain> --ignore-daemonsets`
+
+```
+sudo apt-mark unhold kubelet kubectl && \
+sudo apt-get update && sudo apt-get install -y kubelet='1.30.0-*' kubectl='1.30.0-*' && \
+sudo apt-mark hold kubelet kubectl
+```
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+```
+
+`kubectl uncordon <node-to-uncordon>`
+
+Q11
+
+1. `k drain [NODE NAME] --ignore-daemonsets`
+
+2. node01에 접근
+
+`ssh node01`
+
+3. Package Repository 변경
+
+`echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list`
+
+`curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg`
+
+4. kubeadm 업그레이드
+
+```
+sudo apt-mark unhold kubeadm && \
+sudo apt-get update && sudo apt-get install -y kubeadm='1.30.0-*' && \
+sudo apt-mark hold kubeadm
+```
+
+`sudo kubeadm upgrade node`
+
+- exit
+
+5. kubelet & kubectl 설치
+
+`kubectl drain <node-to-drain> --ignore-daemonsets`
+
+- 다시 `ssh node01`
+
+```
+sudo apt-mark unhold kubelet kubectl && \
+sudo apt-get update && sudo apt-get install -y kubelet='1.30.0-*' kubectl='1.30.0-*' && \
+sudo apt-mark hold kubelet kubectl
+```
+
+```
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+```
+
+`kubectl uncordon node01`
+
+#### 3. Backup and Restore
+
+
+| Backup
+
+- volumes가 hostPath로 되어있다는 것은 실행중인 노드의 경로를 의미하고 controlplane에 존재하고, volumeMounts는 etcd 내부에 존재
+
+1. ETCDCTL API Version 최신화 => 3으로
+- `export ETCDCTL_API=3`
+- 이 명령어 쓰면 etcdctl 앞에 ETCDCTL_API=3을 안 써도 되고, 반대로 이 명령어 수행하지 않으면 모든 etcdctl 앞에 ETCDCTL_API=3 을 작성해야 함
+
+2. Snapshot 저장
+
+- `--cacert`, `--cert`, `--key`, `--endpoints` 지정
+
+```
+etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/kubernetes/pki/etcd/server.crt" --key="/etc/kubernetes/pki/etcd/server.key" --endpoints=127.0.0.1:2379 /opt/snapshot-pre-boot.db
+```
+
+| Restore
+
+1. Snapshot restore
+- `etcdctl snapshot restore --data-dir /var/lib/etcd-from-backup /opt/snapshot-pre-boot.db`
+  - snapshot으로 저장한 파일 내의 데이터를 --data-dir 경로에 저장
+  - /opt에는 일반적으로 **사용자 정의** 리소스,서드파티 소프트웨어(모니터링 도구,로깅 시스템, 데이터베이스 서버), 백업 및 복원 파일 존재
+
+2. etcd의 etcd-data volume path 변경 
+- `vim /etc/kubernetes/manifests/etcd.yaml`의 volumes.hostPath의 name이 etcd-data인 path를 /var/lib/etcd-from-backup으로 변경
+  - `/etc/kubernetes/manifests/etcd.yaml` 암기할 것
+  - /etc는 일반적으로 시스템 설정 파일 저장, /etc/kubernetes에는 cluster의 중요한 설정 파일 저장되어 있고, /etc/kubernetes/manifests에는 cluster의 중요 구성 요소가 YAML 형식으로 저장되어 있음 
+
+3. 재시작 확인
+- `k get pods -n kube-system`으로 etcd-controlplane, scheduler, controller manager가 재시작되는 것 확인
+
+- 정상적으로 재시작되지 않는 경우, `k delete pod etcd-controlplane -n kube-system`으로 삭제 -> 자동 재시작
+
+
+| 다중 클러스터의 경우도 있는데, 이는 section6 참고할 것 => 복잡
+
