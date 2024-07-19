@@ -510,7 +510,288 @@ sudo systemctl restart kubelet
 
 ## Backup and Restore Methods
 
+#### Backup Candidates
+
+| Kubernetes에서 무엇을 백업해야 하는가
+
+1. Resource Configuration
+
+- Deployment, Pod, Service configuration 저장
+- Imperative
+  - Cluster에 생성한 리소스와 관련해 imperative하게 리소스 생성 가능
+    - `k create namespace [NAMESPACE NAME]`, `k create secret`, `k create configmap`
+
+- Declarative
+  - pod definition file 사용
+  - `k apply -f [YAML FILE]`
+  - 리소스의 configuration을 저장하는데 선호되는 방법
+  - 단일 application에 필요한 모든 리소스가 Definition file 형식의 단일 폴더에 존재
+    - 나중에 재사용하거나 다른 사람과 공유 가능
+  - Definition file은 항상 저장해야 함
+    - 소스 코드 리포지토리(Ex.GitHUb)에 저장하면 팀이 관리할 수 있어 유리
+    - 소스 코드 리포지토리는 올바른 백업 솔루션으로 구성되어야 함
+      - Github와 같은 공공 소스 리포지토리는 걱정할 필요 없음
+      - Cluster 전체를 잃어도, configuration file을 이용해 Application을 cluster에 재배치할 수 있음
+
+- 모든 사람이 Declarative 방식으로 리소스를 생성하지는 않음 => 리소스 구성을 백업하는 더 나은 방법은 **kube-apiserver를 쿼리**하는 것 
+
+2. ETCD Cluster
+
+- Cluster와 관련된 모든 정보가 저장되는 곳
+
+3. Persistent Volumes
+
+- Application이 Persistent Volumes에 저장됨
+
+#### Backup - Resource Configs
+
+- kubectl을 이용해 kube-apiserver를 쿼리하거나 apiserver에 직접 액세스함으로써 cluster에 생성된 모든 개체에 대한 리소스 구성을 복사해 저장할 수 있음
+- `kubectl get all -all-namespaces -o yaml > all-deploy-services.yaml`
+  - 백업 스크립트에서 사용되는 명령 중 하나
+  - 모든 namespace의 리소스를 모두 가져와 yaml 포맷으로 추출해 파일 저장
+  - 단, 이는 일부 리소스 그룹에 해당하고 그 외의 고려해야 하는 리소스 그룹이 더 존재
+
+- Velero 사용해 Kubernetes api를 이용해 cluster 백업을 가져오는 데 도움이 됨
+
+#### Backup - ETCD
+
+- ETCD에 cluster에 관한 상태 정보 저장
+  - cluster 자체에 관한 정보, node 및 cluster 내부에서 생성된 모든 리소스 저장
+
+- 이전에 다룬 리소스 백업 대신 etcd server 자체를 백업
+
+- etcd cluster는 master node에 존재
+- `etcd.service`의 `--data-dir`에 구성하는 모든 데이터가 저장될 장소 명시
+  - 백업 도구가 지원할 수 있도록 구성할 수 있는 디렉토리
+
+- `Snapshot`
+  - ETCD는 빌트인 **Snapshot** 솔루션 존재
+    - 아래 명령어로 데이터베이스 스냅샷 찍을 수 있음
+      - 이떄 ETCDCTL_API 버전은 반드시 3으로 설정해야 함 
+        - etcd API version 변경 `export ETCDCTL_API=3`
+        - 버전 조회 `etcdctl --version`
+      - snapshot이름이 snapshot.db 
+      - 경로를 바꾸고 싶은 경우 전체 경로 지정
+      - 아래 명령어 진행 후 `ls`로 snapshot 생성
+    ```
+    ETCDCTL_API=3 etcdctl snapshot save snapshot.db
+    ```
+
+    - 아래 명령어로 백업 상태 볼 수 있음
+    ```
+    ETCDCTL_API=3 etcdctl snapshot status snapshot.db
+    ```
+
+  - **Restore Snapshot**
+    1. kube-apiserver 중단
+    - 복원 프로세스 과정에서 cluster를 다시 시작해야 하는데, kube-apiserver가 cluster에 달려 있기 때문
+    - `service kube-apiserver stop`
+
+    2. Snapshot 복원
+    - `--data-dir` 지정
+      - ETCD를 백업에서 복원할 때 새 cluster 구성을 초기화하고, etcd의 멤버를 새 cluster의 새 멤버로 구성 
+      - 새 멤버가 실수로 기존의 cluster에 합류하는 것을 막기 위한 목적
+      - 이때 새로 생성된 cluster의 etcd.service의 --data-dir이 변경됨
+    ```
+    ETCDCTL_API=3 etcdctl snapshot restore [SNAPSHOT NAME] --data-dir [BACKUP FILE 경로]
+    ```
+    
+    Ex
+    ```
+    ETCDCTL_API=3 etcdctl snapshot restore snapshot.db --data-dir /var/lib/etcd-from-backup
+    ```
+
+    3. Service daemon 다시 로드 후 재시작
+    - `systemctl daemon-reload`
+    - `systemctl etcd restart`
+
+    4. kube-apiserver 시작
+    - `service kube-apiserver start`
+
+  - Snapshot 저장 시 인증서 파일을 지정해야 함
+  ```
+  ETCDCTL_API=3 etcdctl snapshot save snapshot.db --endpoints=https://127.0.0.1:2379 --cacert=/etc/etcd/ca.crt --cert=/etc/etcd/etcd-server.crt --key=/etc/etcd/etcd-server.key
+  ```
+
+- ETCD를 이용한 백업(Resource Configuration)과 kube-apiserver 쿼리를 통한 백업(ETCD Cluster) 살펴봄
+  - 관리되는 쿠버네티스 환경을 사용하는 경우 때로는 etcd cluster에 액세스조차 안 할 수 있음 => kube-apiserver를 쿼리하는 백업이 더 나음
+
 
 ## Practice Test - Backup and Restore
 
+Q2
+
+`k get pods -n kube-system` 후 `k describe etcd-controlplane -n kube-system`
+- 이미지에서 ETCD 버전 확인
+
+Q3
+
+`k describe etcd-controlplane -n kube-system`의 `--listen-client-urls` 확인
+- controlplane node에서 ETCD에 접근할 때 사용하는 주소
+
+Q4
+
+`k describe etcd-controlplane -n kube-system`의 `--cert-file`
+- ETCD Server certificate file 위치
+
+Q5
+
+`k describe etcd-controlplane -n kube-system`의 `--trusted-ca-file`
+- ETCD CA Certificate file 위치
+
+Q6
+
+| Backup
+
+- volumes가 hostPath로 되어있다는 것은 실행중인 노드의 경로를 의미하고 controlplane에 존재하고, volumeMounts는 etcd 내부에 존재
+
+1. ETCDCTL API Version 최신화 => 3으로
+- `export ETCDCTL_API=3`
+- 이 명령어 쓰면 etcdctl 앞에 ETCDCTL_API=3을 안 써도 되고, 반대로 이 명령어 수행하지 않으면 모든 etcdctl 앞에 ETCDCTL_API=3 을 작성해야 함
+
+2. Snapshot 저장
+
+- `--cacert`, `--cert`, `--key`, `--endpoints` 지정
+
+```
+etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/kubernetes/pki/etcd/server.crt" --key="/etc/kubernetes/pki/etcd/server.key" --endpoints=127.0.0.1:2379 /opt/snapshot-pre-boot.db
+```
+
+Q9
+
+| Restore
+
+1. Snapshot restore
+- `etcdctl snapshot restore --data-dir /var/lib/etcd-from-backup /opt/snapshot-pre-boot.db`
+  - snapshot으로 저장한 파일 내의 데이터를 --data-dir 경로에 저장
+  - /opt에는 일반적으로 **사용자 정의** 리소스,서드파티 소프트웨어(모니터링 도구,로깅 시스템, 데이터베이스 서버), 백업 및 복원 파일 존재
+
+2. etcd의 etcd-data volume path 변경 
+- `vim /etc/kubernetes/manifests/etcd.yaml`의 volumes.hostPath의 name이 etcd-data인 path를 /var/lib/etcd-from-backup으로 변경
+  - `/etc/kubernetes/manifests/etcd.yaml` 암기할 것
+  - /etc는 일반적으로 시스템 설정 파일 저장, /etc/kubernetes에는 cluster의 중요한 설정 파일 저장되어 있고, /etc/kubernetes/manifests에는 cluster의 중요 구성 요소가 YAML 형식으로 저장되어 있음 
+
+3. 재시작 확인
+- `k get pods -n kube-system`으로 etcd-controlplane, scheduler, controller manager가 재시작되는 것 확인
+
+- 정상적으로 재시작되지 않는 경우, `k delete pod etcd-controlplane -n kube-system`으로 삭제 -> 자동 재시작
+
 ## Practice Test - Backup and Restore2
+
+| 다중 클러스터 환경. context를 설정해 kubectl이 어느 클러스터에 연결될지 결정
+
+Q3
+
+`k config view`
+- 모든 cluster 조회 가능
+
+Q7
+
+방법 1. `k get pods -n kube-system`에 etcd pod가 존재하는 경우 stacked ETCD
+
+- ETCD Server가 controlplane node에서 실행 중이라는 뜻
+
+방법 2. `k describe pod [API-SERVER POD NAME]`
+
+- `--etcd-servers` (API Server가 ETCD Server와 실제로 통신하기 위한 URL) 호스트 IP 주소를 가리키기 때문에 stacked ETCD
+
+Q8
+
+1. `ssh [CONTROLPLANE NODE]`
+
+- controlplane node에 접속
+
+2. controlplane node에서 `k get describe pod [APISERVER POD]`
+
+- `--etcd-servers`가 외부 IP를 가리키므로 External ETCD 사용
+
+Q10
+
+- Stacked ETCD는 etcd pod 조회로 알 수 있음
+
+Q12
+
+| ETCD의 기본 data directory
+
+`ssh etcd-server`
+
+- ETCD Server에 접속
+
+`ps -ef | grep -i etcd`
+
+- ETCD Server에 대한 모든 구성 보여줌
+- 위 명령어에서 `--data-dir` 라인 찾음
+
+Q13
+
+| etcd server가 일부인 etcd cluster node 개수
+
+`ps -ef | grep -i etcd`에서 `--listen-client-urls` 찾아서 아래 명령어 --endpoints에, `--trusted-ca-file` 찾아서 --cacert에, `--cert-file` 찾아서 --cert에 ,`--key-file` 찾아서 아래 --key에 넣음
+
+- `ETCDCTL_API=3 etcdctl --endpoints=[LISTEN_CLIENT_URLS] --cacert=[TRUSTED_CA_FILE] --cert=[CERT_FILE] --key=[KEY_FILE] member list` 명령어 실행
+
+Q14
+
+1. `ssh [CONTROLPLANE NODE]`
+
+- controlplane node에 진입해야 함
+
+2. `ETCDCTL_API=3 etcdctl snapshot save --endpoints=127.0.0.1:2379 --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/kubernetes/pki/etcd/server.crt" --key="/etc/kubernetes/pki/etcd/server.key" /opt/cluster1.db`
+
+3. cluster1의 controlplane에 있는 파일을 student-node의 /opt 경로로 가져옴
+
+| student-node에 저장해야 함
+
+- `exit`
+
+- `scp cluster1-controlplane:/opt/cluster1.db /opt/`
+
+Q15
+
+| 다중 cluster에서 하나의 cluster 백업 - external ETCD
+
+1. `scp /opt/cluster2.db etcd-server:/root`
+
+2. `ssh etcd-server`
+
+3. `ETCDCTL_API=3 etcdctl snapshot restore /root/cluster2.db --data-dir=/var/lib/etcd-data-new`
+
+4. 
+
+`cd /var/lib/`
+
+`ls -la`
+- 디렉토리 내용 조회
+
+`chown -R etcd:etcd etcd-data-new/`
+- 디렉토리 소유자 변경
+
+
+`ls -la`
+
+`vi /etc/systemd/system/etcd.service`에서 --data-dir을 /var/lib/etcd-data-new로 변경
+
+`systemctl daemon-reload`
+
+`systemctl restart etcd`
+- 재시작
+
+`systemctl status etcd`
+- etcd 상태 조회
+
+5. exit
+
+`k config use-context cluster2`
+
+`k delete pod [SCHEDULER POD],[CONTROLLER MANAGER POD]`
+
+- 재시작
+
+6. `ssh cluster2-controlplane`
+
+`systemctl restart kubelet`
+- kubelet 재시작
+
+`systemctl status etcd`
+
+- etcd 상태 조회
