@@ -349,10 +349,256 @@ ENTRYPOINT FLASK_APP=/opt/source-code/app.py flask run
 
 ## Persistent Volumes
 
+#### 문제
+- 직전에 Volume을 만들 때 Pod Definition file에서 Volume 구성
+- 따라서 Volume Storage를 구성하는 데 필요한 모든 구성 정보가 pod definition file로 들어감
+- 사용자가 많고 넓은 환경에 많은 pod를 배포할 경우, 사용자는 각각의 pod에 따라 매번 저장소를 구성해야 함
+- 어떤 Storage Solution을 사용하든 사용자는 해당 pod를 배포할 때 자신의 환경에 있는 모든 pod definition file에 volume 구성해야 함
+- 변경 사항이 있을 때마다 사용자는 모든 pod에서 수정 사항을 작성해야 함 
+
+=> **Storage를 중앙에서 관리**
+    - 관리자가 거대한 Storage pool을 생성할 수 있도록 구성되어야 하고, 사용자가 요구에 따라 일부를 나누어야 함
+
+#### Persistent Volume
+
+- Cluster 폭의 Storage Volume pool로 관리자가 구성한 것
+- Cluster에 있는 application을 배포하는 사용자가 사용
+- 사용자는 Persistent Volume Claim을 이용해 이 pool에서 storage를 선택할 수 있음
+
+![alt text](image-74.png)
+
+- definition file
+    - `accessModes`
+        - host에 volume이 어떻게 마운트되어야 하는지 정의
+        - ReadOnlyMany, ReadWriteOnce, ReadWriteMany
+    - `capacity`
+        - Persistent Volume을 위해 예약할 storage 양
+    - `hostPath`
+        - Volume Type 중 하나
+        - hostPath란, node의 local 디렉토리에서 storage 사용
+        - hostPath는 production 환경에서는 사용되지 않음
+        - hostPath 대신 AWS EBS Storage 솔루션 사용
+
+
+`pv-definition.yaml`
+```
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+    name: pv-vol1
+spec:
+    accessModes:
+        - ReadWriteOnce
+    capacity:
+        storage: 1Gi
+    #hostPath:
+    #    path: /tmp/data
+
+    awsElasticBlockStorage:
+        volumeID: [VOLUME ID]
+        fsType: ext4
+```
+
+`k create -f pv-definition.yaml`
+
+
 ## Persistent Volume Claims
+
+| Persistent Volume Claims을 만들어 Storage가 사용 가능하도록 할 것
+
+#### Persistent Volume & Persistent Volume Claim
+
+- Persistent Volume과 Persistent Volume Claim은 Kubernetes namespace에 존재하는 두 개의 다른 리소스
+- 관리자는 Persistent Volume을 만들고, 사용자는 storage를 사용하기 위해 Persistent Volume Claim을 만듬
+
+#### Binding
+
+- Persistent volume claim이 생성되면 kubernetes가 Volume에 설정된 요청과 속성에 따라 claim에 Persistent Volume을 묶음 => Binding 
+
+- 모든 Persistent volume claim은 단일 Persistent volume으로 묶여 있음
+- 바인딩 과정에서 kubernetes는 요구대로 충분한 용량을 확보하려 함
+    - Sufficient Capacity, Access Modes, Volume Modes, Storage Class
+- 단일 claim에 매치 가능한 volume이 여러 개 있고 특정 volume을 사용하고 싶다면 label과 selector 이용해 해당 volume에 바인딩 가능
+    - PV
+    ```
+    labels:
+        name: my-pv
+    ```
+    - PVC
+    ```
+    selector:
+        matchLabels:
+            name: my-pv
+    ```
+
+- 다른 모든 기준이 일치하고 더 나은 선택지가 없다면 더 큰 용량의 volume과 묶일 수도 있음
+- pv와 pvc는 일대일관계로, 다른 claim은 volume의 남은 용량을 사용할 수 없음
+- **사용 가능한 volume이 없다면 Persistent Volume Claim은 Pending 상태** 
+    - 새로운 volume이 cluster에 사용 가능해질 때까지
+    - 새 volume이 사용 가능하면 claim은 자동으로 새로 사용 가능한 volume에 바인딩
+
+#### Persistent Volume Claim
+
+- pvc definition file
+    - `accessModes`
+    - `resources`
+        - 원하는 storage 용량 요청
+
+`pvc-definition.yaml`
+```
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: myclaim
+spec:
+    accessModes:
+        - ReadWriteOnce
+    resources:
+        requests:
+            storage: 500Mi
+```
+
+`k create -f pvc-definition.yaml`
+
+
+- Persistent Volume Claim이 생성되면 kubernetes는 이전에 생성된 volume 확인
+    - accessModes 일치하고 요청한 리소스 용량 확인
+    - 둘 다 일치하면 바인딩
+
+#### View PVCs
+
+`k get persistentvolumeclaim`
+
+- VOLUME에 바인딩된 volume 조회 가능
+
+#### Delete PVCs
+
+`k delete persistentvolumeclaim [삭제할 PVC NAME]`
+
+- PVC 삭제 이후 바인딩되었던 Persistent Volume을 어떻게 처리할지 선택할 수 있음
+    - `persistentVolumeReclaimPolicy`
+        - `Retain` : 관리자가 수동으로 삭제할 때까지 PV 유지. BUT 다른 claim에 의해 재사용될 수 없음
+        - `Delete` : 자동 삭제. End Storage Device에서 해당 storage 해방됨
+        - `Recycle` : 데이터 용량의 데이터가 다른 claim에 사용되기 전에 삭제
+
+## Using PVCs in Pods
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod
+spec:
+  containers:
+    - name: myfrontend
+      image: nginx
+      volumeMounts:
+      - mountPath: "/var/www/html"
+        name: mypd
+  volumes:
+    - name: mypd
+      persistentVolumeClaim:
+        claimName: myclaim
+```
 
 ## Practice - Persistent Volumes and Persistent Volume Claims
 
+Q2
+
+`k exec webapp -- cat /log/app.log`
+- application의 log 조회
+
+Q5
+
+`pv.yaml`
+```
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-log
+spec:
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /pv/log
+```
+
+
 ## Storage Class
 
+#### PV and PVCs
+
+- PV 생성과 저장 공간을 차지하기 위해 PVC 생성하는 것을 다룸
+- Pod definition file에서 PVC 사용
+
+#### Static Provisioning
+
+- Google Cloud Persistent Volume에서 PVC 생성
+- 문제는 PV가 생성되기 전에 Google Cloud에 디스크를 생성해야 한다는 점
+
+`gcloud beta compute disks create --size 1GB --region us-east1 pd-disk`
+
+- Application이 storage를 요구할 때마다 먼저 google cloud에서 수동으로 디스크를 프로비전해야 함
+- 그런 다음 생성한 디스크 이름을 사용해 수동으로 Persistent Volume Definition file을 만들어야 함 => `Static Provisioning`
+- Application이 요구할 때 volume이 자동으로 프로비전된다면 더 유리 => `Storage Class` 도입
+
+#### Dynamic Provisioning
+
+- Storage Class로 프로비저너(Ex.Google Cloud) 정의 가능
+- Google Cloud에서 storage를 자동으로 프로비저닝하고 요구 사항이 있으면 pod에 연결 => `Dynamic Provisioning`
+
+`sc-definition.yaml`
+```
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+    name: google-storage
+provisioner: kubernetes.io/gce-pd
+```
+
+- 기존 상황
+    - Storage로 PVC를 사용하는 pod 존재
+    - PVC는 PV에 바인딩
+
+- 이제 Storage Class가 있어서 더이상 PV 정의가 필요하지 않음
+    - PV와 관련된 Storage는 Storage Class가 생성되면 자동으로 생성됨
+
+- Storage Class 동작 과정
+    1. Storage Class 생성
+
+    2. PVC에 지정
+    - PVC가 우리가 정의한 Storage class를 사용하려면 pvc definition file에 `storageClassName` 필드를 추가해 storage class 이름 지정
+
+    `pvc-definition.yaml`
+    ```
+    ...
+    spec:
+        storageClassName: google-storage
+    ```
+
+    3. PVC가 생성되면 그것과 연관된 storage class는 정의된 provisioner를 이용해 GCP에 요구되는 사이즈의 새 디스크 프로비저닝
+
+    4. Kubernetes에 Persistent Volume이 생성하고 PV에 PVC를 바인딩
+    - PV를 수동으로 생성하지 않을 뿐 PV 여전히 사용
+
+- 위에서는 GCP에 volume 생성하는데 provisioner로 GCE provisioner 사용
+    - 많은 다른 provisioner 존재
+    - Ex. AWSElasticBlockStore, AzureFile, AzureDisk, CephFS, Cinder, FC, FlexVolume, Glusterfs, iSCSI, Quobyte, NFS, RBD, VsphereVolume, PortworxVolume, ScaleIO, StorageOS, Local
+    - 각각의 provisioner에 매개 변수 전달 가능
+    - Ex. type, replication-type
+    - 다른 유형의 disk를 사용해 다양한 storage class 생성 가능
+    - Ex. Silver (pd-standard,none), Gold sc(pd-ssd,none), Platinum sc(pd-ssd,regional-pd) => () 안은 각각 parameters.type, parameters.replication-type 의미
+
+
 ## Practice - Storage Class
+
+Q3
+
+- provisioner가 없는 것이 dynamic volume provisioning을 지원하지 않는 것
+
+Q7
+
+- 본 문제의 경우 해당 PV의 Storage Class 이름을 찾고 해당 Storage Class 이름을 연결

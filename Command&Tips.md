@@ -565,3 +565,16 @@ etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/ku
 
 | 다중 클러스터의 경우도 있는데, 이는 section6 참고할 것 => 복잡
 
+## Section8 명령어
+
+#### 1. Volume, PV, PVC
+
+| Persistent Volume = pv, Persistent Volume Claim = pvc
+
+- 공식 페이지에서 복붙
+
+#### 2. Storage Class
+
+| Storage Class = sc
+
+- 공식 페이지에서 복붙
