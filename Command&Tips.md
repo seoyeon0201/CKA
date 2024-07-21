@@ -565,3 +565,6 @@ etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/ku
 
 | 다중 클러스터의 경우도 있는데, 이는 section6 참고할 것 => 복잡
 
+## Section7 명령어
+
+#### 1. 
