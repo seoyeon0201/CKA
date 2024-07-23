@@ -578,3 +578,7 @@ etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/ku
 | Storage Class = sc
 
 - 공식 페이지에서 복붙
+
+## Section9 명령어
+
+#### 
