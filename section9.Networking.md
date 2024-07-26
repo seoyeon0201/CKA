@@ -945,7 +945,550 @@ ip -n [NAMESPACE] link set ....
 
 ## CNI in kubernetes
 
+#### Container Network Interface
+
+| CNI는 container runtime의 책임 정의. 현재 섹션에서는 Kubernetes에서의 container runtime
+
+- Container Runtime must create network namespace
+- Identify network the container must attach to
+- Container Runtime to invoke Network Plugin(Bridge) when container is ADDed
+- Container Runtime to invoke Network Plugin(Bridge) when container is DELeted
+
+- JSON format of the Network Configuration
+
+#### Configuring CNI
+
+| Kubernetes에 필요한 CNI Plugin 지정하는 곳
+
+- CNI Plugin은 반드시 container를 만드는 구성 요소를 기반으로 작동해야 함
+  - container가 생성된 후에 해당 구성 요소가 적절한 네트워크 Plugin을 호출해야 하기 때문
+- container를 만드는 구성 요소는 container runtime
+  - Ex. containerd와 cri-o
+
+- 사용 가능한 네트워크 플러그인은 많음
+  - Ex. flannel, weave, cilium, nsx 등
+- 특정 Plugin을 사용하기 위해 container runtime을 구성하는 방법
+  - 네트워크 plugin은 `/opt/cni/bin` 디렉토리에 설치
+  - 어떤 plugin을 어떻게 사용할지는 `etc/cni/net.d` 디렉토리에 구성
+    - 여러 개가 존재할 수 있고 각각 plugin을 구성하는 파일
+
+#### View CNI configuration
+
+`ls /opt/cni/bin`
+
+- 실행 가능으로 지원되는 모든 CNI Plugin 조회 가능
+
+`ls /etc/cni/net.d`
+
+- 어떤 네트워크 plugin을 사용해야 하는지 container runtime이 알려주는 곳
+- 여러 개가 존재한다면 알파벳 처음으로 나오는 plugin 사용
+
+`ls /etc/cni/net.d/10-bridge.conf`
+
+- plugin 구성 파일을 CNI 표준으로 정의
+
 ## CNI weave
+
+| weave는 CNI Plugin
+
+#### weave 동작 방법
+
+- 이전: host에 어떤 네트워크가 있는지 매핑
+
+  - packet이 pod에서 다른 pod로 전송되면
+    1. 네트워크로 나가서 라우터로 이동 
+    2. 해당 pod를 호스트하는 node로 이동
+
+- node와 pod가 많은 환경에서는 실용적이지 못 함
+
+| 새로운 솔루션
+
+- Kubernetes cluster를 회사, node를 사무실 사이트로 가정
+- packet이 이동하는 것을 배달한다고 생각했을 때 배송을 잘 하는 `외부 회사에 위탁` => weave
+  1. 배송 회사는 회사의 사이트(node)에 agent 배치
+    - agent는 장소 간 모든 운송 활동 관리
+    - 서로 계속 연락하고 잘 통함  
+
+  2. packet이 10번 사무실에서 3번 사무실로 전송되면, 해당 사이트의 agent가 소포(packet)를 가로채 목표 사무실 이름을 봄
+    - 어느 회사 어디 사이트인지 암 
+  3. 패키지를 자신의 새 패키지에 넣고 목적지 주소를 목표 지점 위치로 설정
+  4. 배송 회사(weave)를 통해 물건 배송
+  5. 소포가 목적지에 도달하면 해당 회사에 존재하는 배송 회사 agent가 가로챔
+  6. agent가 소포를 열고 원본을 찾아 해당 사무실에 전달
+
+
+| Kubernetes
+
+1. 각 node에 agent나 service 배포
+- 모든 agent는 서로 통신
+- 각 agent는 전체 셋업의 토폴로지 저장
+  - 다른 node의 pod와 ip를 알 수 있음
+- weave 내 각 네트워크에 ip 주소 할당
+  - pod 하나에 여러 개의 bridge network 존재할 수 있음
+  - `k exec busybox ip route`
+
+- packet이 목적지에 도달하는 경로는 container에 구성된 경로에 달려 있음
+- weave는 pod가 올바른 경로를 설정해 agent에게 닿으면 agent가 다른 pod 처리
+
+2. agent가 packet 처리
+- packet을 다른 node로 보낼 때 weave가 packet을 가로채 별도의 네트워크가 있는지 확인
+- packet을 새로운 소스와 대상으로 캡슐화해 네트워크로 전송
+
+3. 목적지의 weave 요원이 packet을 회수해 packet에 나타난 경로로 전송
+
+#### Deploy Weave
+
+- Weave 또는 Weave peers는 cluster node에 service로 배포하거나 daemon으로 배포 가능
+- kubernetes가 설정되었다면 cluster에 pod처럼 배포
+- 아래 명령어로 weave에 필요한 모든 구성 요소 배포
+  - `k apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"`
+  - weave peers는 daemon으로 배치
+    - daemonset은 주어진 종류의 pod 하나가 cluster 내 모든 node에 배포되었는지 확인
+
+#### Weave Peers
+
+`k get pods -n kube-system`
+
+- 각 node에 배포된 weave peers 조회 가능
+
+`k logs [WEAVE POD NAME] weave -n kube-system`
 
 ## Practice Test - Explore CNI
 
+Q1
+
+`ps aux | grep kubelet | grep end`
+
+- `ps aux`는 모든 user의 process 전체 조회 가능
+
+Q2
+
+`ls /opt/cni/bin`
+
+- 지원하는 모든 CNI 존재
+
+Q4
+
+`ls /etc/cni/net.d`
+
+- 현재 Kubernetes에서 사용하는 CNI 
+
+## Practice Test - Deploy Network Solution
+
+Q3
+
+`k apply -f weave/weave-daemonset-k8s.yaml`
+
+- 실행 후 `k get pods -n kube-system`,`k get cm -n kube-system`으로 weave plugin이 실행되는지 조회
+
+## IP Address Management - Weave
+
+| Node에서 가상 bridge network가 어떻게 IP subnet에 할당되고 pod도 어떻게 IP 할당되는지. 그 정보가 어디에 저장되어 있고 중복되는 IP는 누가 배정하는지
+
+#### WHO?
+
+- 기준을 정하는 것은 CNI이므로 CNI에 따르면 네트워크 솔루션 공급자인 CNI plugin의 임무는 container에 IP를 할당하는 것
+
+- 기본 plugin에서 IP를 할당하는 파트 존재
+  - container network namespace에 IP를 할당하는 섹션 존재
+  - 하지만 이 IP를 어떻게 관리하는가?
+
+  `net-script.sh`
+  ```
+  # Assign IP Address
+  ip -n [NAMESPACE] addr add ....
+  ip -n [NAMESPACE] route add ....
+  ```
+
+- Kubernetes는 수단과 방법을 가리지 않고 중복되는 IP를 할당하지 않고 적절히 관리해야 함
+- 쉬운 방법은 파일에 IP 목록을 저장하고 파일을 적절히 관리하기 위해 script에 필요한 코드가 있는지 확인
+    `Ip-list.txt`
+    ```
+    IP         STATUE    POD
+    10.244.1.2 ASSIGNED  BLUE
+    10.244.1.3 ASSIGNED  ORANGE
+    10.244.1.4 FREE 
+    ```
+    `net-script.sh`
+    ```
+    # Retrieve Free IP from file
+    ip = get_free_ip_from_file()
+
+    # Assign IP Address
+    ip -n [NAMESPACE] addr add ....
+    ip -n [NAMESPACE] route add ....
+    ```
+  - Ip-list 파일은 각 host에 놓여져 해당 node의 부품 IP 관리 
+
+  - Script에 코딩하는 대신 CNI는 plugin을 2개 내장해 작업도 아웃소싱할 수 있게 함
+    - `DHCP`, `host-local`
+  - 실행한 plugin은 각 host의 local IP 주소를 관리하기 위한 접근법 구현 => host local plugin
+    `net-script.sh`
+    ```
+    # Invoke IPAM host-local plugin
+    ip = get_free_ip_from_host_local()
+
+    # Assign IP Address
+    ip -n [NAMESPACE] addr add ....
+    ip -n [NAMESPACE] route add ....
+    ```
+
+- 하지만 script에 plugin을 호출하는 것은 우리의 책임
+- 또는 script를 역동적으로 만들어 다양한 플러그인을 지원할 수 있음
+
+- CNI 구성 파일(/etc/cni/net.d/net-script.conf) 에는 IPAM이라는 섹션 존재
+  - IPAM 섹션에서 사용할 plugin 유형 지정 가능
+  - subnet과 route도 지정 가능 
+
+  `cat /etc/cni/net.d/net-script.conf`
+  ```
+  {
+    "cniVersion": "0.2.0",
+    "name": "mynet",
+    ..
+    "ipam": {
+      "type": "host-local",
+      "subnet": "10.244.0.0/16",
+      "routes": [
+        { "dst": "0.0.0.0/0"}
+      ]
+    }
+  }
+  ```
+
+- 네트워크 솔루션 공급자마다 다르게 설정되어 있음
+- Ex. weave가 IP 주소 관리하는 방법
+  - 기본적으로 IP 범위 10.32.0.0/12 할당
+    - 10.32.0.1 ~ 10.47.255.254
+  - 그럼 네트워크 pod에 사용할 수 있는 IP가 1,048,574개
+  - 이 범위에서 peer는 IP 주소를 동등하게 나누고 각 node에 하나의 부분 할당
+
+## Practice - Networking Weave
+
+Q6
+
+`ip addr show weave`
+
+- weave가 사용하는 IP 조회 가능
+
+또는 `k logs -n kube-system [WEAVE POD NAME]`
+
+- log에서 ipalloc-range에 할당되는 IP 주소 조회 가능
+
+Q7
+
+`ssh node01` > `ip route`
+
+또는 
+
+pod 하나를 nodeName 지정해 생성 > 이후 `k exec [CONTAINER NAME] -- ip route`
+
+
+## Service Networking
+
+#### 이전 섹션 리뷰 -Pod Networking
+
+- 각 Node 안에서 어떻게 네트워크가 생성되는지
+- 어떻게 namespace가 생성되는지
+- 어떻게 interface가 namespace에 연결되는지
+- 어떻게 node에 할당된 subnet 내에서 IP 주소를 얻는지
+- 서로 다른 node에 있는 pod가 서로 통신하게 해서 모든 pod가 통신할 수 있는 거대한 가상 네트워크를 만듬
+
+#### Service
+
+- 서로 직접 소통하도록 pod를 구성하는 경우는 거의 없음
+- 다른 pod에 호스팅된 service에 액세스하는 pod를 원하면 항상 service 사용
+- Ex. Node1에 Blue, Orange pod 존재, Node2에 Purple pod 존재, Node3에 Orange pod 존재
+
+- Case1. `ClusterIP`
+  - Orange와 Blue pod를 연결하기 위해 Orange service 생성
+    - Orange service는 **IP 주소와 그에 할당된 이름을 얻음**
+  - Blue pod는 orange service IP나 이름을 통해 orange pod에 액세스 가능
+    - service name으로 하는 것은 다음에 진행하고 IP에 집중
+  - Node1에 Blue pod와 Orange pod 모두 존재. BUT `다른 node의 pod에서 오는 액세스는 어떻게 처리?`
+  - Service가 생성되면 cluster의 모든 pod에서 액세스 가능
+    - **pod는 node에 호스팅되지만, service는 cluster에 호스팅**
+    - Service는 특정 node에 묶여 있는 것이 아니라 cluster 내에서만 액세스 가능 => `Cluster IP`
+  - Orange pod가 DB Application을 호스팅하고 cluster 내부에서만 액세스할 수 있다면 이 service도 문제 없음
+
+- Case2. `NodePort`
+  - purple pod는 web application 호스팅
+  - pod의 web application을 cluster 외부에서 액세스할 수 있도록 또 다른 유형의 nodePort service 생성
+  - 이 service는 할당된 IP 주소도 가지고 clusterIP처럼 작동
+    - 다른 pod는 IP를 이용해 이 service에 접근할 수 있음
+  - 하지만 외부 사용자나 application이 service에 액세스할 수 있도록 cluster 내 모든 node의 port에 있는 application도 공개
+  
+- 의문점
+  - Service가 IP 주소를 얻는 방법
+  - cluster 내 모든 node에서 어떻게 사용 가능하게 만들었는지
+  - 어떻게 Service가 각 node의 port를 통해 외부 사용자에게 사용 가능해졌는지
+
+#### Service
+
+| 3개의 Node 존재
+
+1. 각 node의 `kubelet` 서비스는 kube-apiserver를 통해 cluster의 변화를 지켜봄
+- kube-apiserver에 새 pod가 생성될 때마다 node에 pod 생성
+- CNI plugin을 호출해 해당 pod에 맞는 네트워킹 구성
+2. 각 node는 `kube-proxy`라는 다른 구성 요소 실행
+- kube-proxy는 api-server를 지켜보면서 cluster의 변화를 지켜봄
+- 새 Service가 생성될 때마다 kube-proxy 동작
+- pod와 달리 service는 각 node에서 생성되거나 각 node에 할당되지 않음
+  - service는 cluster 전체 개념
+- pod와 달리 service는 process,namespace,interface도 존재하지 않음
+
+| `그렇다면 어떻게 IP 주소를 확보하고 service를 통해 pod에서 application에 접근하는가? `
+
+- Kubernetes에서 service 객체를 생성하면 미리 정의된 범위에서 IP 주소 할당
+- IP 주소를 할당하면 각 node에서 실행 중인 kube-proxy 구성 요소는 해당 IP 주소를 받아 cluster 내 각 node에 전달 규칙을 만듬
+  - IP address와 forward to
+  - 이 IP로 오는 트래픽은 service IP이고, 이 경우 service에 해당하는 pod의 IP로 가야 한다고 알려줌
+  - 즉 pod가 service IP로 도달할 때마다 pod의 IP 주소로 전달
+  - cluster의 어떤 node에서도 액세스 가능
+- IP 뿐만 아니라 IP와 port 조합도 존재
+  - Service가 생성되거나 삭제될 때마다 kube-proxy 구성 요소가 이 규칙을 생성하거나 삭제
+  - `이러한 규칙은 어떻게 만드는가`
+
+- kube-proxy는 다양한 방법 지원
+  1. userspace
+  2. ipvs 생성
+  3. iptables 사용
+    - default
+
+- kube-proxy 서비스는 kube-proxy mode를 사용해 설정 가능
+  - `kube-proxy --proxy-mode [userspace | iptables | ipvs]`
+
+
+#### kube-proxy 구성 - iptables 사용
+
+| kube-proxy로 iptable를 어떻게 구성하고 node에서 볼 수 있는지
+
+- `k get pods -o wide`
+  - db라는 이름의 pod 존재
+  - IP 10.244.1.2
+
+- `k get svc`
+  - clusterIP를 생성해 cluster 안에서 pod가 사용 가능하도록 함
+  - service가 생성되면 kubernetes는 IP 주소 할당
+  - db-service IP 주소는 10.103.132.104
+    - service의 IP 주소 범위는 api server 옵션에서 지정되어 있음
+    - `kube-api-server --service-cluster-ip-range ipNet`
+      - default: 10.0.0.0/24 
+      - 영상에서는 10.96.0.0/12 이므로 10.96.0.0 ~ 10.111.255.255
+    - `ps aux | grep kube-api-server` 명령어로 조회 가능
+    - Pod 네트워킹을 설정할 때에는 network CIDR 10.244.0.0/16이므로 10.244.0.0~10.244.255.255
+    - Pod와 Service의 주소 범위가 겹치면 안 됨
+    - kube-proxy로 만든 규칙이 IP table의 NAT 테이블 결과에 존재
+      - `iptables -L -t nat | grep db-service` 
+        - 목적지 주소가 10.103.132.104 이고 port가 3306임을 알 수 있음
+        - 해당 service가 pod 10.244.1.2:3306 으로 전달
+    - nodePort service를 만들 때 kube-proxy는 iptable 규칙을 만들어 모든 nodePort로 들어오는 트래픽을 각각의 백엔드로 전달
+    - kube-proxy 로그 조회 가능 => `cat /var/log/kube-proxy.log`
+
+## Practice - Service Networking
+
+Q1
+
+`ip addr`
+
+- `ip addr`에서 eth0에 존재하는 IP address 범위가 cluster의 node에 할당되는 IP address 범위
+
+
+Q2
+
+`k logs [WEAVE POD] -n kube-system`
+
+- 위 명령어 결과에서 ipalloc이 pod에 할당되는 IP 주소
+- weave가 pod에 주소 할당하고 packet을 운반하는 운송체이므로 
+
+Q3
+
+`vim /etc/kubernetes/manifests/kube-apiserver.yaml`
+
+- 위 결과에서 `--service-cluster-ip-range`가 service의 IP range
+
+Q5
+
+`k logs [KUBE-PROXY POD NAME] -n kube-system`
+
+- kube-proxy가 어떻게 구성되었는지 조회 가능
+
+
+## DNS in kubernetes
+
+#### Pre-Requisite
+
+- What is DNS?
+- Host/NS Lookup, Dig utility
+  - DNS와 작업하기 위해 사용하는 도구
+- Recorded Types - A, CNAME
+- Domain Name Hierarchy
+
+#### Objectives
+
+- What names are assigned to what objects?
+  - 어떤 object에 어떤 이름이 할당되는지
+- Service DNS records
+  - 어떤 Service DNS record가 있는지
+- POD DNS Records
+  - 어떤 Pod DNS record가 있는지
+
+#### DNS
+
+| pod와 service가 배포된 3개의 node 존재
+
+- 각 node에는 할당된 node 이름과 IP 주소 존재
+  - node1
+    - 이름: node1.kubecluster.org
+    - IP: 192.168.1.11
+  - node2
+    - 이름: node2.kubecluster.org
+    - IP: 192.168.1.12
+  - node3
+    - 이름: node3.kubecluster.org
+    - IP: 192.168.1.13
+
+- node 이름과 IP 주소는 DNS Server에 등록되어 있음
+
+
+#### DNS Resolution
+
+| cluster 내에서 pod와 service 같은 cluster 내 다양한 구성 요소 간의 DNS Resolution
+
+- Kubernetes는 cluster를 설정할 때 기본으로 built-in DNS Server 배포
+  - Kubernetes를 수동으로 설정하면 직접 할 수 있음
+
+- node를 신경 쓰지 않고 cluster 내의 pod와 service에만 초점을 맞춤
+- cluster networking 설정이 올바르다면 모든 pod 및 service가 각자의 IP 주소를 얻어 서로 통신 가능
+
+| 2개의 pod와 service
+
+- test pod와 web pod, web-service service 존재
+  - test pod: 10.244.1.5
+  - web pod: 10.244.2.5
+  - web-service: 10.107.37.188
+- pod는 다른 node에 존재하지만 DNS와 관련해 모든 pod와 service가 IP로 통신할 수 있다고 가정
+
+- web server가 test pod에 액세스할 수 있게 하려면 service를 만들어야 함 => web-service
+- Kubernetes DNS Service는 service가 생성될 때마다 record 생성
+  - Hostname: web-service
+  - IP Address: 10.107.37.188
+  - 서비스 이름을 IP 주소에 매핑
+
+- 따라서 cluster 내 어떤 pod도 service 이름을 사용해 service에 도달할 수 있음
+  - `curl http://web-service`
+
+- 이때 Namespace 개념
+  - 같은 namespace 내에서는 이름만 호명해도 되지만, 다른 namespace에서 호출하는 경우 풀네임을 사용해야 함
+  - 현재 예시에서는 test와 web pod 모두 같은 namespace에 존재 test pod에서 web-service 이름만 사용해 web-service에 접근할 수 있음
+
+| web pod와 web-service service가 다른 namespace인 apps에 존재하는 경우
+
+- test pod는 `curl http://web-service.apps`로 web-service를 호출해야 함
+- web-service 뒤에 붙은 apps는 namespace 이름
+
+- DNS Server
+  - 각 namespace에 대해 DNS Server는 그 이름으로 하위 도메인 생성
+  - 모든 service는 svc라는 다른 하위 도메인으로 함께 묶임
+  - Root도 설정 => 기본은 cluster.local
+    - root domain은 항상 cluster.local
+
+  |Hostname|Namespace|Type|Root|IP Address|
+  |:--:|:--:|:--:|:--:|:--:|
+  |web-service|apps|svc|cluster.local|10.107.37.188|
+
+- 즉 아래의 모든 명령어로 접근 가능
+  - `curl http://web-service.apps`
+  - `curl http://web-service.apps.svc`
+  - `curl http://web-service.apps.svc.cluster.local`  
+
+
+- pod에 대한 record는 기본적으로 생성되지 않지만 명시적으로 기록할 수 있음 => 다음 섹션
+  - BUT pod의 hostname은 작성하지 않고 IP 주소의 .을 -로 변경해 이름으로 사용
+  - type은 pod이고 나머지는 동일
+  - `curl http://10-244-2-5.apps.pod.cluster.local` => web pod 
+  - `curl http://10-244-1-5.default.pod.cluster.local` => test pod
+
+## CoreDNS in Kubernetes
+
+| CoreDNS는 Kubernetes의 DNS Server
+
+| Kubernetes가 DNS를 어떻게 구현하는지
+
+#### DNS Server
+
+- test pod와 web pod가 서로 통신할 수 있게 하는 가장 쉬운 방법은 각자의 /etc/hosts에 서로를 추가하는 것
+- BUT 많은 pod와 service가 생성되고 삭제되므로 적절한 솔루션이 아님
+- 따라서 이 파일을 하나의 DNS Server로 처리
+  - 각 pod를 DNS Server에 지정 => `/etc/resolv.conf`에 nameserver로 DNS Server IP 설정
+
+- 동작 방식
+  1. 새 pod가 생성될 때마다 DNS Server에 해당 pod에 대한 record 추가
+  2. 새 pod의 /etc/resolv.conf에 DNS Server 지정
+
+- DNS Server에서 pod의 hostname은 IP 주소의 .을 -로 바꾼 값
+- Kubernetes도 내부에 DNS Server를 배포해 동일하게 동작
+  - Kubernetes 1.12 이전에는 kube-dns, 이후에는 CoreDNS
+
+#### CoreDNS
+
+- Cluster에서 CoreDNS Server는 Kubernetes cluster의 kube-system namespace에 pod로 배포
+- Deployment로 중복해 pod 2개로 구성
+- CoreDNS Pod는 CoreDNS 실행 파일 실행
+  - `./Coredns`
+- CoreDNS는 구성 파일 요구
+  - `/etc/coredns/Corefile`
+  - 이 파일 안에 구성된 plugin이 여러 개
+  - plugin은 오류 처리를 위해 구성
+    - health,monitoring,cache 등
+  - kubernetes 플러그인은 도메인 이름 설정
+    - CoreDNS의 모든 record가 이 도메인에 존재
+
+- 위의 Core file이 configmap 개체로 pod에 전달
+  - 수정 사항이 있는 경우 configmap 수정 가능
+
+- 새 pod와 service를 위해 kubernetes cluster를 감시하고 pod나 service가 생성될 때마다 database에 record 추가
+
+| `DNS Server에 접속할 때 어떤 주소를 사용하는지` 
+
+- CoreDNS 솔루션을 배포할 때 service도 생성해 cluster 내 다른 구성 요소가 사용 가능하도록 함
+  - service 이름은 kube-dns
+  - service의 IP 주소는 pod의 nameserver로 구성
+  - 이는 직접 구성할 필요 없이 pod의 DNS 설정은 kubernetes가 pod를 만들 때 kubelet이 자동으로 함
+  - `cat /var/lib/kubelet/config.yaml`을 보면 clusterDNS IP가 지정되어 있음
+  - nameserver로 pod를 제대로 구성하면 다른 pod와 service 해결 가능
+
+- `host web-service`와 같이 수동으로 웹 서비스를 찾아보면 완전히 검증된 도메인 이름 반환
+  - `web-service.default.svc.cluster.local has address 10.107.37.188` 조회 가능
+  - 단 서비스는 web-service, web-service.default, web-service.default.svc와 같이 어떤 형태로든 가능하지만, pod 검색 시에는 pod의 전체 DNS 경로를 지정해야함
+    - Ex. pod의 경우 `host 10-244-2-5.default.pod.cluster.local`
+
+## Practice - Explore DNS
+
+Q5
+
+`k describe deploy coredns -n kube-system`
+
+- deploy 살펴봐 coredns 경로 확인
+- Containers.coredns를 살펴보면 CoreDNS 서비스를 실행하는 container
+- Containers.coredns.Args의 -conf는 CoreDNS를 실행하는 구성 파일을 의미하고, 이후 나오는 경로가 구성 파일의 경로
+
+
+Q8
+
+`k describe configmap coredns`
+
+- configmap으로 coredns 설정 확인
+
+Q15
+
+`k exec hr -- nslookup mysql.payroll > /root/CKA/nslookup.out`
+
+- `nslookup`은 DNS Server에 원하는 도메인 정보(현재는 mysql.payroll)를 조회하는 명령어
+  - DNS Server로부터 여러가지 정보를 얻을 수 있는 명령어
+
+## Ingress
+
+## Practice - Ingress-1
+
+## Practice - Ingress-2
