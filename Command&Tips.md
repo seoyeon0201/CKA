@@ -578,3 +578,145 @@ etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/ku
 | Storage Class = sc
 
 - 공식 페이지에서 복붙
+
+## Section9 명령어
+
+#### Explore Kubernetes Environment
+
+Q3
+
+`ip addr | grep [IP ADDRESS]`
+
+- 해당 IP interface 탐색
+- ip 주소와 ip 주소의 특징에 대한 정보를 출력
+
+![alt text](image-141.png)
+
+Q6
+
+`ssh node01`
+
+Q7
+
+`ip address show type bridge`
+
+- bridge의 interface 조회
+
+Q9
+
+`route`
+
+- routing table 조회
+
+Q10
+
+`netstat -plnt`
+
+- 실행중인 프로그램 조회
+- 네트워크 연결 상태, 라우팅 테이블, 인터페이스 상태 등을 보여주는 명령어
+
+Q11
+
+`netstat -npa | grep -i etcd | grep -i 2379 | wc -l`과 `netstat -npa | grep -i etcd | grep -i 2380 | wc -l` 비교
+
+#### Explore CNI
+
+
+Q1
+
+`ps aux | grep kubelet | grep end`
+
+- `ps aux`는 모든 user의 process 전체 조회 가능
+
+Q2
+
+`ls /opt/cni/bin`
+
+- 지원하는 모든 CNI 존재
+
+Q4
+
+`ls /etc/cni/net.d`
+
+- 현재 Kubernetes에서 사용하는 CNI 
+
+#### Deploy Network Solution
+
+Q3
+
+`k apply -f weave/weave-daemonset-k8s.yaml`
+
+- 실행 후 `k get pods -n kube-system`,`k get cm -n kube-system`으로 weave plugin이 실행되는지 조회
+
+#### Networking Weave
+
+Q6
+
+`ip addr show weave`
+
+- weave가 사용하는 IP 조회 가능
+
+또는 `k logs -n kube-system [WEAVE POD NAME]`
+
+- log에서 ipalloc-range에 할당되는 IP 주소 조회 가능
+
+Q7
+
+`ssh node01` > `ip route`
+
+또는 
+
+pod 하나를 nodeName 지정해 생성 > 이후 `k exec [CONTAINER NAME] -- ip route`
+
+#### Service Networking
+
+Q1
+
+`ip addr`
+
+- `ip addr`에서 eth0에 존재하는 IP address 범위가 cluster의 node에 할당되는 IP address 범위
+
+
+Q2
+
+`k logs [WEAVE POD] -n kube-system`
+
+- 위 명령어 결과에서 ipalloc이 pod에 할당되는 IP 주소
+- weave가 pod에 주소 할당하고 packet을 운반하는 운송체이므로 
+
+Q3
+
+`vim /etc/kubernetes/manifests/kube-apiserver.yaml`
+
+- 위 결과에서 `--service-cluster-ip-range`가 service의 IP range
+
+Q5
+
+`k logs [KUBE-PROXY POD NAME] -n kube-system`
+
+- kube-proxy가 어떻게 구성되었는지 조회 가능
+
+#### Explore DNS
+
+Q5
+
+`k describe deploy coredns -n kube-system`
+
+- deploy 살펴봐 coredns 경로 확인
+- Containers.coredns를 살펴보면 CoreDNS 서비스를 실행하는 container
+- Containers.coredns.Args의 -conf는 CoreDNS를 실행하는 구성 파일을 의미하고, 이후 나오는 경로가 구성 파일의 경로
+
+
+Q8
+
+`k describe configmap coredns`
+
+- configmap으로 coredns 설정 확인
+
+Q15
+
+`k exec hr -- nslookup mysql.payroll > /root/CKA/nslookup.out`
+
+- `nslookup`은 DNS Server에 원하는 도메인 정보(현재는 mysql.payroll)를 조회하는 명령어
+  - DNS Server로부터 여러가지 정보를 얻을 수 있는 명령어
+
