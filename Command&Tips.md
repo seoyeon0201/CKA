@@ -720,6 +720,3 @@ Q15
 - `nslookup`은 DNS Server에 원하는 도메인 정보(현재는 mysql.payroll)를 조회하는 명령어
   - DNS Server로부터 여러가지 정보를 얻을 수 있는 명령어
 
-#### Ingress-1
-
-#### Ingress-2

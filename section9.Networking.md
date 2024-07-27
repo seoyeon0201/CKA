@@ -1489,6 +1489,300 @@ Q15
 
 ## Ingress
 
-## Practice - Ingress-1
+#### Service
 
-## Practice - Ingress-2
+- Kubernetes에 제품을 판매하는 온라인 쇼핑몰 application 배포
+  - www.my-online-store.com
+- application을 docker image로 빌드한 후 pod로 배포
+  - wear pod
+- BUT database 필요
+  - MySQL DB를 pod로 배포
+  - mysql-service라는 ClusterIP service를 만들어 application에 접근 가능하도록 함
+- 이제 application 동작
+- BUT 외부에서 application을 접근하려면 NodePort Service 필요
+  - NodePort Service인 wear-service 
+  - 38080 port가 service에 할당
+  - 사용자는 http://[NODE IP]:38080 으로 application 접근 가능
+
+`문제 발생1 & 해결`
+
+- traffic이 늘면 pod의 replicas 수를 늘려 처리하고, service가 pod 간의 traffic 분산
+- BUT 사용자가 매번 IP 주소를 입력하는 것을 원하지 않음 => DNS Server를 구성해 node의 IP를 가리킴
+  - http://my-online-store.com:38080 으로 접근 가능
+- BUT 사용자가 port를 기억할 필요 없음
+  - DNS Server와 Cluster 사이에 proxy-server 배치
+  - proxy-server 80이 38080 port를 요청
+  - DNS를 proxy-server를 가리킴
+  - http://my-online-store.com 으로 접근 가능
+
+`문제 발생2 & 해결 - GCP 사용`
+- application이 on-premise 데이터센터에 호스팅되는 경우
+  - Google Cloud Platform 같은 public cloud 환경
+  - nodePort 형식의 service를 만드는 대신 LoadBalancer로 설정
+  - 이 경우 Kubernetes는 nodePort가 하는 동작을 동일하게 동작하고 GCP에 service를 위한 loadbalancer를 provision해달라는 요청 전송
+  - 요청을 받은 GCP는 자동으로 loadbalancer를 배포하는데 트래픽 경로를 service port로 모두 설정하고 그 정보를 kubernetes에 반환
+  - LoadBalancer는 외부 IP를 가지고 있어 사용자가 application에 액세스하도록 제공
+  - http://my-online-store.com 으로 접근 가능
+
+`문제 발생3 & 해결 - 새 service 추가`
+
+- application에 service가 늘어 기존의 application(wear) 외에도 스트리밍 서비스(video) 존재
+- video deployment와 video-service 이름의 LoadBalancer 생성
+  - port 38282
+  - 이전과 동일하게 video-service와 관련된 gcp load-balancer 생성  
+  - 새 loadbalancer는 새 IP를 가짐
+
+- Loadbalcner가 많으면 cloud 과금이 나올 수 있음
+- 사용자가 지정한 URL에 기반해 Loadbalancer 간의 traffic 지정하는 방법 or URL 기반 트래픽을 다른 service로 리다이렉트할 수 있는 proxy 혹은 loadbalancer 필요
+- 새 service를 소개할 때마다 loadbalancer 장치 재구성해야함
+- application에 대한 ssl 활성화해야함 => https://my-online-store.com
+
+=> Ingress 필요
+
+#### Ingress
+
+- Ingress는 사용자가 외부적으로 액세스 가능한 단일 URL을 이용해 application에 액세스하도록 도움
+- URL 경로에 기반해 cluster 내 다양한 service로 라우트할 수 있도록 구성
+- 동시에 ssl 보안 구현 가능
+
+| 간단히 말해 ingress는 kubernetes cluster에 내장된 loadbalancer
+
+- Ingress도 외부에서 접근하려면 노출해야함 => NodePort로 게시하거나 cloud loadbalancer 사용
+
+
+- Ingress가 없는 경우
+  - 1. Deploy
+    - reverse proxy 또는 loadbalancer solution 사용
+    - Ex. NGINX, haproxy, traefik
+  - 2. Configure
+    - URL 루트를 정의하고 SSL 인증서 구성 포함   
+
+- Kubernetes가 같은 방식으로 Ingress 운영
+  1. 지원되는 solution 배포
+    - `Ingress Controller`
+    - default로 존재하지 않기에 필요한 경우 설치
+    - Ex. NGINX, haproxy, traefik
+  2. Configure
+    - ingress 규칙 명시
+    - `Ingress Resources`
+      - Definition file을 이용해 생성
+
+#### Ingress Controller
+
+- Default로 존재하지 않기에 배포해야함
+- 아래 중 하나로 생성
+  - GCP HTTP(S) Load Balancer(GCE)
+  - Nginx
+  - Contour
+  - Haproxy
+  - traefik
+  - Istio
+
+- 특히 GCE와 Nginx는 현재 kubernetes가 지원하고 관리하고 있음 
+  - 예시는 Nginx로 진행
+- Ingress Controller는 단순히 LoadBalancer나 nginx server가 아님
+  - LoadBalancer의 기능에 추가적인 정보를 탑재하여 Kubernetes cluster를 모니터링
+  - 새로운 정의를 위해 또는 ingress resource를 위해 nginx server 설정
+
+- nginx controller는 kubernetes의 `deployment`로 생성
+  - definition file
+    - configuration 데이터를 가지는 configmap 작성
+    - pod name과 pod namespace 환경 변수로 작성
+      - nginx ingress controller는 pod 내에서 configuration data를 읽어야 함
+    - port 지정
+
+  `nginx-ingress-controller.yaml`
+  ```
+  apiVersion: extensions/v1beta1
+  kind: Deployment
+  metadata:
+    name: nginx-ingress-controller
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        name: nginx-ingress
+    template:
+      metadata:
+        labels:
+          name: nginx-ingress
+      spec:
+        containers:
+          - name: nginx-ingress-controller
+            image: quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.21.0
+        args:
+          - /nginx-ingress-controller
+          - --configmap=${POD_NAMESPACE}/nginx-configuration
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+        ports:
+          - name: http
+            containerPort: 80
+          - name: https
+            containerPort: 443
+
+  ```
+ 
+  - errer log path, keep-alive, ssl-protocols와 같은 구성 옵션 데이터를 nginx ingress controller image에서 분리하려면 configmap 리소스 생성해야함
+    - 이 시점에는 필요 없음
+
+  ```
+  kind: ConfigMap
+  apiVersion: v1
+  metadata:
+    name: nginx-configuration
+  ```
+
+
+- 외부에서 ingress controller를 노출할 `Service` 필요
+  ```
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: nginx-ingress
+  spec:
+    type: NodePort
+    ports:
+      - port: 80
+        targetPort: 80
+        protocol: TCP
+        name: http
+      - port: 443
+        targetPort: 443
+        protocol: TCP
+        name: https
+    selector:
+      name: nginx-ingress
+  ```
+
+- ingress controller가 이러한 것을 할 때 올바른 roles, rolebindings, clusterroles과 같은 올바른 권한 필요
+  - `ServiceAccount`
+  ```
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: nginx-ingress-serviceaccount
+  ```
+
+| 요약하자면 nginx ingress controller Deployment와 노출할 Service, 구성 데이터를 가지는 ConfigMap, 이 모든 개체에 액세스할 수 있는 권한을 가지는 ServiceAccount 필요
+
+#### Ingress Resource
+
+- Rule과 Configuration 집합으로 ingress controller에 적용
+  - 트래픽을 특정 application으로 보내거나 URL에 기반해 여러 application으로 라우팅하도록 함
+  - 도메인 이름 자체에 따라 사용자 라우트 가능
+
+1. wear application 하나만 존재
+
+- single backend의 경우 어떤 규칙도 없음
+- application에 도달하려면 service를 거쳐야 하므로 backend service 지정
+
+`Ingress-wear.yaml`
+```
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: ingress-wear
+spec:
+  backend:
+    serviceName: wear-service
+    servicePort: 80
+```
+
+`k apply -f Ingress-wear.yaml`
+
+`k get ingress`로 조회 가능
+
+2. wear, video application 존재
+
+- 각각을 www.my-online-store.com 에서 /wear, /watch 경로로 트래픽 전송
+  - 1. Rule
+    - www.my-online-store.com
+  - 2. Paths
+    - /wear, /watch
+
+`ingress.yaml`
+```
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-wear-watch
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /wear
+            backend:
+              service: 
+                name: wear-service
+                port:
+                  number: 80
+          - path: /watch
+            backend:
+              service:
+                name: watch-service
+                port: 
+                  number: 80
+```
+
+`k apply -f ingress.yaml`
+
+`k describe ingress ingress-wear-watch`
+
+3. domain 이름이나 host 이름 사용
+
+- 1. Rule
+  - wear.my-online-store.com
+  - watch.my-online-store.com
+- 2. Path
+  - 각각 1개의 Path
+
+`Ingress-wear-watch.yaml`
+```
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: ingress-wear-watch
+spec:
+  rules:
+    - host: wear.my-online-store.com
+      http:
+        paths:
+          - backend:
+              service: 
+                name: wear-service
+                port:
+                  number: 80
+    - host: watch.my-online-store.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: watch-service
+                port: 
+                  number: 80
+```
+
+- Case2와 Case3 비교
+  - URL로 나누는 Rule은 하나인데, Path가 2개
+  - host 이름으로 트래픽을 분할하기 위해 rule마다 path 하나씩 사용
+
+#### Ingress Resources - Rules
+
+- 각 도메인이나 호스트 이름에서 비롯된 트래픽에 대한 규칙 생성
+  - 상단에 각 host나 domain name에 Rule이 있고, 각각의 rule 안에 URL에 기반한 트래픽 경로 존재
+  - Rule1. www.my-online-store.com
+    - Path: /wear, /watch, /
+  - Rule2. www.wear.my-online-store.com
+    - Path: /, /returns, /support
+  - Rule3. www.watch.my-online-store.com
+    - Path: /, /movies, /tv
+  - Rule4. Everything Else
+    - Path: http://www.listen.my-online-store.com/ ,...
