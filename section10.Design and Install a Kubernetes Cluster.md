@@ -126,6 +126,116 @@
 
 ## Choosing Kubernetes Infrastructure
 
+| Kubernetes는 다양한 시스템에 다양한 방식으로 배포: Labtop(=local device),Physical server, Cloud server
+
+#### Labtop
+
+1. 지원되는 Linux 컴퓨터에 수동으로 binary 설치해 local cluster 설정
+
+2. 위 방법을 자동화하는 솔루션에 의존해 cluster 설정
+
+3. Windows에서는 Kubernetes를 원래 설정으로 설정할 수 없음
+
+- 바이너리가 없기 때문
+- Hyper-V 또는 VMware Workstation, VirtualBox와 같은 가상 소프트웨어에 의존해 Linux VM 생성해 Kubernetes 환경 설정 가능
+
+| Kubernetes 구성 요소를 실행하는 솔루션
+
+- Windows VM Docker container로서의 `Docker`
+- Docker 이미지는 Linux 기반으로 그 아래에는 HyperV에 의해 Linux docker container를 실행하도록 만든 작은 Linux OS 실행
+
+| Local computer에서 쉽게 Kubernetes를 시작하는 솔루션
+
+- `Laptop`
+    - 위에 진행
+
+- `minikube`
+    - 단일 node cluster를 쉽게 배포
+    - Oracle VirtualBox와 같은 가상화 소프트웨어에 의존해 Kubernetes cluster 구성 요소를 실행하는 가상 컴퓨터 생성
+
+- `kubeadm`
+    - 하나의 node 또는 다중 node cluster를 빠르게 배포
+    - 이를 위해 지원되는 구성과 함께 필요한 host를 직접 프로비전해야함
+
+- minikube vs kubeadm
+    - minikube는 VM을 배포하고 kubeadm은 VM은 이미 프로비전(준비)되었다고 기대
+    - minikube는 single node cluster 배포하고, kubeadm은 single 또는 multi node cluster 배포
+
+- Kubernetes cluster를 노트북에 local로 배포하는 것은 보통 학습, 테스트, 개발 목적
+
+#### Kubernete cluster 시작 방법
+
+| Kubernetes cluster를 시작하는 방법은 많음 => Private 또는 Public Cloud 환경
+
+1. Turnkey Solutions
+
+- You Provision VMs
+    - 필요한 VM을 프로비전하는 곳
+- You Configure VMs
+- You Use Scripts to Deploy Cluster
+    - 도구나 스크립트를 이용해 kubernetes cluster 구성
+- You Maintain VMs yourself
+    - VM을 관리하고 패치하고 업그레이드하는 작업 할 수 있음
+- Eg: Kubernetes on AWS using KOPS
+    - cluster 관리와 유지는 이 도구와 스크립트를 사용하면 쉬워짐
+    - KOPS를 이용해 AWS에 Kubernetes cluster 배포
+
+2. Hosted Solutions (=Managed Solutions)
+
+- Kubernetes-As-A-Service
+    - Service 솔루션에서 Kubernetes와 비슷
+- Provider provisions VMs
+    - Cluster와 요구되는 VM이 공급자에 의해 배포되고 구성
+- Provider installs Kubernetes
+- Provider maintains VMs
+    - VM은 공급자에 의해 유지됨
+- Eg: Google Container Engine (GKE)
+
+#### Turnkey Solutions
+
+1. OpenShift
+
+- Redhat의 온프레미스 Kubernetes 플랫폼
+- 오픈 소스 container application platform으로 Kubernetes에 기반하여 만들어짐
+- 추가적인 도구 집합과 Kubernetes의 구성물을 생성하고 관리할 수 있는 좋은 GUI 제공
+    - CI/CD 파이프라인 등과 쉽게 통합할 수 있도록 함
+- 카탈로그에 초급반 Openshift 존재
+
+2. Cloud Foundry Container Runtime
+
+- 오픈 소스 도구를 이용해 고가용성 Kubernetes Cluster 배포 및 관리를 도움
+
+3. VMware Cloud PKS
+- Kubernetes를 위한 VMware 환경을 활용하고 싶다면 VMware Cloud PKS 솔루션 사용
+
+4. Vagrant
+
+- 유용한 스크립트를 제공해 서로 다른 cloud service provider에 kubernetes cluster 배포
+
+| 위 솔루션을 통해 Kubernetes cluster를 배포하고 개별적으로 관리하는 것을 쉽게 해줌. 단 지원되는 구성 설정이 포함된 가상 컴퓨터가 존재해야하며, Kubernetes Certified Solution 중 일부
+
+#### Hosted Solutions
+
+1. GKE (Google Container Engine)
+
+2. OpenShift Online
+- RedHat의 제품으로 온라인에서 완전히 작동하는 Kubernetes cluster에 접속할 수 있음
+
+3. Azure Kubernetes Service
+
+4. Amazon Elastic Container Service for Kubernetes (EKS)
+
+#### Our choice
+
+- 학습 목적으로 하는 것이기 때문에 Public Cloud 계정에 접근하지 못 할 수 있음을 고려하면 Virtual Box로 Local 환경 선호
+- Local system에 Local Kubernete cluster를 배포할 것
+    - VirtualBox에 가상 컴퓨터 여러 개 생성
+
+#### Our design
+
+- 3개의 node
+    - Master 1 Worker 2
+- 가상 컴퓨터에 프로비전된 노트북에 배포될 것
 
 ## Configure High Availability
 
