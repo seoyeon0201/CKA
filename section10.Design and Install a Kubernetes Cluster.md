@@ -239,4 +239,105 @@
 
 ## Configure High Availability
 
+- Cluster의 Master node를 잃어버린다면?
+    - Worker node가 작동하고 Container가 살아 있는 한 application은 작동
+        - 사용자는 fail될 때까지 application에 접속 가능
+- Container 또는 Pod가 고장난다면?
+    - Pod가 ReplicaSet의 일부라면 Master의 replication controller가 worker node에게 새 pod를 생성하라고 지시
+    - BUT Master node를 사용할 수 없음
+        - Master node의 controller와 scheduler 사용할 수 없음
+        - Kube-apiserver도 사용할 수 없어 kubectl 툴이나 API를 통해 외부적으로 cluster에 액세스할 수 없음
+
+=> 따라서 Production 환경에서 고가용성 구성으로 Multiple Master node를 고려해야 함
+
+- High Availability Configuration
+    - Cluster 내 모든 구성 요소를 중복으로 가지는 것
+        - 단일 실패 지점을 피하기 위함
+    - Master node, Worker node, Controlplane component, Application이 Replicaset 및 Service 형식으로 여러 개의 복사본 존재
+
+| Master node의 Controlplane component를 살펴볼 것
+
+#### Master node
+
+| 지금까지 Cluster 내의 3개의 Node(1 Master node, 2 Worker node) 존재 => Master node만 집중적으로 살펴볼 것 
+
+- Master node는 controlplane 구성 요소 호스팅
+    - kube-apiserver, controller scheduler, etcd server 
+
+- 추가적인 Master node와 함께 설치하면 새로운 master node에도 동일한 구성 요소 실행
+- 2개의 Master node 동작
+    - 같은 component의 여러 instance를 실행하면 같은 일을 2번 하는가? or 일을 어떻게 분담하는가?
+        - 무엇을 하냐에 따라 다름
+
+1. `kube-apiserver`
+- 요청을 수신하고 프로세싱하고 cluster에 관한 정보 제공
+- 요청에 따라 한 번에 하나씩 작업되어 cluster node 전체의 apiserver가 active 모드가 되어 동시에 실행
+- 지금까지는 kubectl 유틸리티와 apiserver가 교신해 작업 완료
+- 그 kubectl 유틸리티를 master node1의 port 6443으로 가도록 함 => `https://master1:6443`
+    - 해당 port는 apiserver가 듣는 곳
+    - kubeconfig 파일에 구성되어 있음
+- master node가 2개인데 kubectl 2는 어디로 가는가? => `https://master2:6443`
+    - master node의 어느 쪽이든 요청할 수 있지만 양쪽 다 같은 요청을 해서는 안 됨
+- 따라서 일종의 `load-balancer`를 가지는게 좋음 => `https://load-balancer:6443`
+    - Master node의 앞에서 apiserver 간의 트래픽 분할 
+    - 그런 다음 kubectl 유틸리티가 load balancer를 가리키도록 함
+    - 이 목적으로 nginx, HAProxy 또는 그 외의 다른 load balancer 사용 가능
+
+2. `controller manager`
+- Cluster 상태를 보고 행동을 취함
+- Controller로 구성되어 있는데, replication controller처럼 pod 상태를 계속 관찰하고 pod 하나가 고장나면 새 pod를 만드는 등 필요한 조치 취함
+- 다수의 instance가 병렬로 실행되면 작업을 중복해 필요 이상으로 pod를 늘릴 수 있음
+- 따라서 병렬로 실행되면 안 됨 => `Active & Standby 모드`
+    - 하나의 Master node의 controller manager는 Active 모드, 다른 master node의 controller manager는 Standby 모드
+    - `주도적인 선거 과정`을 통해 Active, Standby 모드 부여
+        - Controller Manager 프로세스가 구성되면 `leader elect` 옵션 지정 가능
+            - `kube-controller-manager --leader-elect true [other options]`
+            - default가 true 
+        - Controller Manager 프로세스가 시작되면 `Kube-controller-manager Endpoint`라는 이름의 endpoint 개체가 lease 또는 lock을 얻음
+        - 어떤 프로세스든 해당 정보와 함께 endpoint를 업데이트하는 쪽이 lease를 획득해 두 master node 중 하나가 활성화되고 다른 하나는 비활성화
+        - 기본 duration은 15초. 해당 시간동안 지정된 lease를 위해 다른 node에 lock 설정
+            - `--leader-elect-lease-duration`
+        - Active 프로세스가 lease 갱신. default 10s
+            - `--leader-elect-renew-deadline 10s`
+        - 위의 두 과정 모두 리더 선출이 정한 2초마다 leader가 되려고 노력함
+            - `--leader-elect-retry-period 2s`
+            - 그래야 첫 번째 master가 실패해도 두 번째 master가 로그를 획득해 리더가 될 수 있음
+
+3. `scheduler`
+- controller manager와 동일
+- 병렬로 실행되면 안 됨 => `Active & Standby 모드` 실행
+- 과정 모두 동일
+    - command line 옵션 동일
+
+4. `ETCD server`
+
+- ETCD는 2가지 구성이 있음
+    - 하나는 Kubernetes Master node의 일부로 ETCD 존재 => `Stacked Topology`
+        - Easier to setup, manage, Fewer Servers
+            - 설정과 관리가 쉽고 node도 더 적게 요구
+        - Risk during failures
+            - BUT 하나의 node가 죽으면 ETCD 둘 다를 포함한 controlplane instance 분실
+    - 하나는 Controlplane Node에서 분리되어 그 자체 서버 세트에서 실행 => `External ETCD Topology`
+        - Less Risky
+            - 이전 topology와 비교해 이것은 덜 위험
+            - controlplane node가 실패해도 etcd cluster와 저장된 데이터에 영향을 주지 않음
+        - Harder to Setup
+            - 설정이 어려움
+        - More Servers
+            - 외부 node에 대한 더 많은 서버(2배) 필요 
+
+- API server는 ETCD server에 통신하는 유일한 구성요소
+    - Topology에 상관없이 ETCD server 구성 장소가 동일한 server(node)이든 분리된 server이든 궁극적으로 API server가 해당 서버의 올바른 주소를 가리키도록 해야 함
+    - API service 구성 옵션을 보면 etcd server 위치를 지정하는 옵션 존재
+    - `cat /etc/systemd/system/kube-apiserver.service`에 `--etcd-servers=https://10.240.0.10:2379,https://10.240.0.11:2379`
+
+=> `ETCD는 Distributed system`임을 기억할 것! API server나 통신하고자 하는 다른 구성 요소는 그 instance에서 해당 ETCD server에 도달할 수 있으며, ETCD server를 사용할 수 있는 instance를 통해 데이터를 읽고 쓸 수 있음
+
+#### Our Design
+
+- 단일 Master node에 2개의 Worker node로 구성했었지만, 현재 2개의 Master Node로 변경
+- kube-apiserver에 대한 load balancer 장치 존재
+- 총 5개의 Node
+    - 2개의 Master node, 2개의 Worker node, 1개의 Load balancer
+
 ## ETCD in HA
