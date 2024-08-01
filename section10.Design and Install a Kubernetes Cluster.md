@@ -341,3 +341,176 @@
     - 2개의 Master node, 2개의 Worker node, 1개의 Load balancer
 
 ## ETCD in HA
+
+- ETCD in High Availability 
+- Cluster Configuration에 초점
+
+#### Objectives
+
+- What is ETCD?
+- What is a Key-Value Store?
+- How to get started quickly?
+- How to operate ETCD?
+- What is a distributed system?
+- How ETCD operates?
+- RAFT Protocol
+- Best practices on number of nodes
+
+#### ETCD
+
+- ETCD is a distributed reliable key-value store that is Simple, Secure & Fast
+    - ETCD는 분산되고 신뢰할 수 있는 key-value 저장소로, 간단하고 안전하고 빠름
+
+#### Key-Value Store
+
+- 전통적으로 데이터를 아래와 같은 테이블에 저장
+    - Ex. 개인 정보 
+
+|Name|Age|Location|Salary|Grade|
+|:--:|:--:|:--:|:--:|:--:|
+|John Doe|45|New York|5000||
+|Dave Smith|34|New York|4000||
+|Aryan Kumar|10|New York||A|
+|Lauren Rob|13|Bangalore||C|
+|Lily Oliver|15|Bangalore||B|
+
+- key-value store는 문서나 페이지의 형태로 정보 저장
+- 각 개인은 문서를 하나 씩 가지고 그 개인에 관한 모든 정보가 해당 파일에 저장됨
+- 이 파일은 어떤 형식이나 구조로든 존재할 수 있음
+- 한 파일의 변화는 다른 파일에 영향을 주지 않음
+- 단순한 key와 value를 저장하고 회수할 수 있는 반면 데이터가 복잡해지면 JSON 또는 YAML 같은 데이터 포맷 사용 => `ETCD`
+
+#### distributed
+
+- 단일 서버에 추가했지만 database라 중요한 데이터를 저장할 수 있음
+- 여러 서버에 걸쳐 데이터 저장소를 가질 수 있음
+- 3개의 서버가 실행 중이면 데이터베이스의 동일한 복사본 유지
+    - 하나를 잃어도 두개가 남음
+- BUT 모든 노드의 데이터가 일관적인지 확인하는가? `Consistent`
+    - 어떤 instance에서든 쓰고 데이터를 읽을 수 있음
+    - ETCD는 데이터의 동일한 복사본이 모든 instance에서 동시에 사용 가능하도록 보장
+    - `Read`: 같은 데이터가 모든 node에서 사용 가능하기 때문에 어떤 node에서든 쉽게 읽을 수 있음
+    - `Write`: 2개의 write 요청이 2개의 다른 instance에서 오는 경우 
+        - 두 node에 2개의 다른 데이터를 둘 수 없음
+        - ETCD는 어떤 instance라도 쓸 수 있다고 했는데 100% 보장하지는 않음
+        - ETCD는 node마다 write를 처리하지 않고 오직 한 instance에서 write 처리
+        - 전체 instance에서 node 하나는 리더가 되고 다른 node는 추종자가 됨 => `Leader Election`
+        - 리더 node를 통해 write 요청이 들어오면 리더 node가 write 진행 -> 리더 node가 다른 node에게 데이터 복사본 전송
+            - 팔로워 노드를 통해 write 하면 팔로워 노드가 리더에게 write 전달
+        - 따라서 다른 멤버들로부터 리더가 동의를 얻어야만 완성된 것으로 간주
+
+#### Leader Election - RAFT
+
+- 전체 instance에서 node 하나가 리더가 되고 나머지는 팔로워
+- Leader Election 과정
+    1. (팔로워 node를 통해 write하는 경우) 리더 node에게 write 요청 전달
+    2. 리더 node가 write 진행
+    3. 리더 node가 다른 node에게 데이터 복사본 전송
+
+- 리더 node 선정 방법 - `RAFT Protocol` 사용
+
+    | 3개의 master node 존재한다고 가정. Because ETCD는 Master node에 존재
+
+    - 클러스터가 설정될 때 리더 node 선출되지 않음
+    1. RAFT 알고리즘은 무작위로 타이머를 맞춰 신호 전송
+    2. 타이머를 먼저 완료하는 사람이 다른 node에 리더 권한 요청
+    3. 다른 node가 투표로 요청에 답변하면 리더 역할 맡게 됨
+    4. 리더 node가 다른 master node에게 주기적으로 공지를 보내 자신이 리더 역할을 하고 있다고 알림
+        - write 요청이 들어오면 리더 node에 의해 처리
+        - cluster 내 다른 node로 복제
+        - write는 cluster의 다른 instance로 복제되었을 때 완료되었다고 판단
+        - ETCD는 High Availability 성질을 가져 node를 잃어도 기능함
+            1) Majority 이상의 node에 write 가능하면 그 외의 node에 작성되지 않아도(노드 다운) 완료되었다고 간주
+            - Majority = N/2 + 1
+            - 단 1과 2의 Majority는 각각 1과 2
+            - 즉 2개의 node의 경우 하나라도 down되면 write 완료되지 못함
+            - 따라서 추가적인 cluster에 최소 3개의 instance를 갖도록 권장
+            - 아래 표의 Quorum = Majority, Fault Tolerance는 작동하는 동안 손실할 수 있는 node 개수
+
+                |Instances|Quorum|Fault Tolerance|
+                |:--:|:--:|:--:|
+                |1|1|0|
+                |2|2|0|
+                |3|2|1|
+                |4|3|1|
+                |5|3|2|
+                |6|4|2|
+                |7|4|3
+
+            - Master node의 수 결정
+                - 위 표에서 강조했듯이 **홀수개 선택**
+                - 짝수 선택하는 경우 네트워크 세분화 중 cluster 결함이 발생할 가능성 있음
+                - Ex. 6개의 node가 2개의 네트워크 망으로 나뉘는 경우 특히 3:3으로 나뉘는 경우 어떤 네트워크 망도 Quorum에 해당하는 4개를 active할 수 없음 
+                - 홀수는 네트워크 세분화해도 cluster가 생존할 확률이 큼 
+                - Ex. 7개의 node의 경우 2개의 네트워크 망으로 나뉘면 3:4로 Quorum에 해당하는 4개의 node가 active될 수 있음
+                - BUT node가 5개 이상은 결함이 있을 위험이 커 X
+
+            2) 다운된 node가 다시 올라오면 해당 node에도 데이터 복사
+
+    5. 다른 node들이 리더 node로부터 어떤 시점에 대한 알림을 받지 못할 수 있음 => node 사이에서 재선출(re-election) 프로세스 시작 => 새 리더 선출
+        - 리더 node 다운
+        - 네트워크 연결 끊김
+
+#### Getting Started
+
+| 서버에 설치 방법 
+
+1. 최신 지원되는 바이너리 다운로드
+2. 다운로드한 바이너리를 압축해 필수 디렉토리 구조를 생성
+3. 추가로 생성된 인증서 파일 위로 복사
+
+```
+wget -q --https-only "https://github.com/coreos/etcd/releases/download/v3.3.9/etcd-v3.3.9-linux-amd64.tar.gz"
+
+tar -xvf etcd-v3.3.9-linux-amd64.tar.gz
+
+mv etcd-v3.3.9-linux-amd64/etcd*/usr/local/bin/
+
+mkdir -p /etc/etcd /var/lib/etcd
+
+cp ca.pem kubernetes-key.pem kubernetes.pem /etc/etcd/
+```
+
+4. ETCD Service 구성
+
+- `etcd.service`
+- 위 파일 내에서 중요한 것은 peer 정보를 전달하는 초기 cluster 옵션
+    - 각 별도의 service가 해당 옵션을 통해 cluster의 일부와 peer가 어디 있는지 알 수 있음
+
+`--initial-cluster peer-1=https://${PEER1_IP}:2380,peer-2=https://${PEER2_IP}:2380` 
+
+#### ETCDCTL
+
+| 설치 및 환경 설정이 끝나면 ETCDCTL 유틸리티를 이용해 데이터를 저장 및 검색
+
+- Version2와 Version3 존재
+    - 두 버전의 명령이 다름
+    - Version2가 Default지만 Version3 사용할 것
+
+```
+export ETCDCTL_API=3    #ETCDCTL API Version 3로 설정. 이후의 etcdctl은 모두 version3로 진행
+
+etcdctl put name john   #데이터 넣기. key가 name, value가 john
+
+etcdctl get name        #key로 데이터 검색
+
+etcdctl get / --prefix --keys-only  #ETCD에 존재하는 모든 key 찾기
+
+```
+
+#### Number of Nodes
+
+- High Availability에 필요한 최소 master node는 3개
+    - Majority(=Quorum) 관련
+- Master node 최소 개수가 3개, 내결함성이 높은 것을 원한다면 5개 (그 이후로는 필요 X)
+    - 자신의 환경과 결함 내구성, 요구 사항, 비용을 고려해 위에서 선택
+    - 우리는 3개 선택
+
+- 이전 섹션 Node
+    -  Load Balancer 1개, Master node 2개, Worker node 2개
+
+- 현제 섹션 Node
+    - Load Balancer 1개, Master node 3개, Worker node 2개
+        - BUT 노트북 한계로 Master node 2개만 사용. 다른 환경에서 셋업 배포하고 충분한 용량을 확보한다면 3개 사용
+    - Stacked Topology 형태의 ETCD Server 사용
+        - Master node에 ETCD가 내장되어 있음
