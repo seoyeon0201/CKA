@@ -720,3 +720,45 @@ Q15
 - `nslookup`은 DNS Server에 원하는 도메인 정보(현재는 mysql.payroll)를 조회하는 명령어
   - DNS Server로부터 여러가지 정보를 얻을 수 있는 명령어
 
+## Section11 명령어
+
+#### Cluster Installation using Kubeadm
+
+Q1. kubeadm과 kubelet을 1.30.0-1.1 버전으로 설치
+
+- https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+- 4단계의 `sudo apt-get install -y kubelet kubeadm kubectl`에서 버전 지정
+    - `sudo apt-get install -y kubelet=1.30.0-1.1 kubeadm=1.30.0-1.1 kubectl=1.30.0-1.1`
+
+
+Q5
+
+`ifconfig`
+
+- 네트워크 인터페이스 설정하거나 IP 주소, 서브넷마스크, MAC 주소, 네트워크 상태 확인 가능
+- 암기
+
+`kubeadm init --apiserver-advertise-address=192.15.114.12 --pod-network-cidr=10.244.0.0/16 --apiserver-cert-extra-sans=controlplane`
+
+- apiserver-advertise-address는 `ipconfig`에서 문제에 주어진 interface의 IP 주소 
+
+- 아래 명령어 실행해 kubeconfig 파일 설정 완료할 것
+
+```
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+Q7
+
+- Master node에서 `kubeadm init` 명령어 완료 시 나타난 메세지 중 join 복사 후 Worker node에 붙여넣기
+
+Q8
+
+- `kubeadm init` 시 addon 링크에서 flannel 찾아 배포
+    - `kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml`
+
+- flannel이 eth0 인터페이스와 상호작용하도록 수정
+    - `k edit daemonset [DAEMONSET NAME]`
+    - args에 `- --iface=eth0` 추가
