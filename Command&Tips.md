@@ -567,4 +567,281 @@ etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/ku
 
 ## Section7 명령어
 
-#### 1. 
+#### 1. View Certification Details
+
+Q1. Identify the certificate file used for the kube-api server
+
+- `k get pods -A`에서 pod로 배포되었으므로 kubeadm 사용한 것
+- `k describe pod [CONTROLPLANE POD] -n kube-system`
+  - `--tls-cert-file=/etc/kubernetes/pki/apiserver.crt` 옵션이 kube-api server certificate file
+
+- 이때 key와 certificate 구분 !
+  - key는 .key
+  - certificate는 .crt
+
+Q6. What is the Common Name (CN) configured on the Kube API Server Certificate?
+
+`openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text -noout`
+
+- openssl에 -in 옵션 뒤에 certificate 경로 넣기
+
+Q12
+
+- kubectl이 동작하지 않는 경우 docker를 사용하는 경우는 `docker` command, cri-o를 사용하는 경우 `crictl` 명령어 사용
+  - `docker ps -a` or `crictl ps -a`
+  - 이때 방금 생성된 container, 즉 running 상태의 container log 확인 => "2379 port 번호로 etcd에 문제가 있음을 알아차림"
+  - `docker logs [CONTAINER ID]` or `crictl logs [CONTAINER ID]`
+- 오류 메세지 경로 찾기
+  - `ls /etc/kubernetes/pki/etcd`에 server-certificate.crt 존재 X
+- `/etc/kubernetes/manifests/etcd.yaml | grep server-certificate.crt`
+  - server-certificate.crt가 존재하는 --cert-file을 올바르게 변경
+- 시간 오래 소요
+
+Q13
+
+- `/etc/kubernetes/manifests/etcd.yaml`와 같이 /etc/kubernetes/manifests 아래에 구성 요소 yaml 파일 존재 
+
+- kube-apiserver yaml 파일에는 ca가 2개 존재하는데 --client-ca-file은 kube-apiserver의 ca.crt로 ../pki/ca.crt, --etcd-cafile은 /pki/etcd/ca.crt 
+- 나머지 certificate와 key는 모두 pki 아래에 존재
+- 즉, etcd의 ca.crt만 pki/etcd 아래에 존재하고 나머지는 모두 pki에 존재
+
+![alt text](image-144.png)
+
+- etcd는 모두 pki/etcd 아래에 존재
+
+![alt text](image-145.png)
+
+#### 2. Certificates API
+
+Q2
+
+`cat [CSR NAME] | base64 -w 0`
+
+- `-w 0`을 안 하면 한 줄이 아니게 되어 오류 발생 => 반드시 작성해야 함
+- base64로 인코딩한 값을 YAML 파일에 작성
+
+Q4
+
+`kubectl certificate approve [CSR NAME]`
+
+- 승인시켜줘야 함
+
+Q7
+
+`k get csr agent-smith -o yaml > smith.yaml`
+
+- csr의 group을 보려면 describe가 아닌 yaml 파일로 확인해야 함
+
+Q8
+
+`kubectl certificate deny [CSR NAME]`
+
+- csr 거절
+
+#### 3. KubeConfig
+
+
+#### 4. RBAC
+
+
+#### 5. Cluster Roles and Role Bindings
+
+
+
+## Section8 명령어
+
+#### 1. Volume, PV, PVC
+
+| Persistent Volume = pv, Persistent Volume Claim = pvc
+
+- 공식 페이지에서 복붙
+
+#### 2. Storage Class
+
+| Storage Class = sc
+
+- 공식 페이지에서 복붙
+
+## Section9 명령어
+
+#### Explore Kubernetes Environment
+
+Q3
+
+`ip addr | grep [IP ADDRESS]`
+
+- 해당 IP interface 탐색
+- ip 주소와 ip 주소의 특징에 대한 정보를 출력
+
+![alt text](image-141.png)
+
+Q6
+
+`ssh node01`
+
+Q7
+
+`ip address show type bridge`
+
+- bridge의 interface 조회
+
+Q9
+
+`route`
+
+- routing table 조회
+
+Q10
+
+`netstat -plnt`
+
+- 실행중인 프로그램 조회
+- 네트워크 연결 상태, 라우팅 테이블, 인터페이스 상태 등을 보여주는 명령어
+
+Q11
+
+`netstat -npa | grep -i etcd | grep -i 2379 | wc -l`과 `netstat -npa | grep -i etcd | grep -i 2380 | wc -l` 비교
+
+#### Explore CNI
+
+
+Q1
+
+`ps aux | grep kubelet | grep end`
+
+- `ps aux`는 모든 user의 process 전체 조회 가능
+
+Q2
+
+`ls /opt/cni/bin`
+
+- 지원하는 모든 CNI 존재
+
+Q4
+
+`ls /etc/cni/net.d`
+
+- 현재 Kubernetes에서 사용하는 CNI 
+
+#### Deploy Network Solution
+
+Q3
+
+`k apply -f weave/weave-daemonset-k8s.yaml`
+
+- 실행 후 `k get pods -n kube-system`,`k get cm -n kube-system`으로 weave plugin이 실행되는지 조회
+
+#### Networking Weave
+
+Q6
+
+`ip addr show weave`
+
+- weave가 사용하는 IP 조회 가능
+
+또는 `k logs -n kube-system [WEAVE POD NAME]`
+
+- log에서 ipalloc-range에 할당되는 IP 주소 조회 가능
+
+Q7
+
+`ssh node01` > `ip route`
+
+또는 
+
+pod 하나를 nodeName 지정해 생성 > 이후 `k exec [CONTAINER NAME] -- ip route`
+
+#### Service Networking
+
+Q1
+
+`ip addr`
+
+- `ip addr`에서 eth0에 존재하는 IP address 범위가 cluster의 node에 할당되는 IP address 범위
+
+
+Q2
+
+`k logs [WEAVE POD] -n kube-system`
+
+- 위 명령어 결과에서 ipalloc이 pod에 할당되는 IP 주소
+- weave가 pod에 주소 할당하고 packet을 운반하는 운송체이므로 
+
+Q3
+
+`vim /etc/kubernetes/manifests/kube-apiserver.yaml`
+
+- 위 결과에서 `--service-cluster-ip-range`가 service의 IP range
+
+Q5
+
+`k logs [KUBE-PROXY POD NAME] -n kube-system`
+
+- kube-proxy가 어떻게 구성되었는지 조회 가능
+
+#### Explore DNS
+
+Q5
+
+`k describe deploy coredns -n kube-system`
+
+- deploy 살펴봐 coredns 경로 확인
+- Containers.coredns를 살펴보면 CoreDNS 서비스를 실행하는 container
+- Containers.coredns.Args의 -conf는 CoreDNS를 실행하는 구성 파일을 의미하고, 이후 나오는 경로가 구성 파일의 경로
+
+
+Q8
+
+`k describe configmap coredns`
+
+- configmap으로 coredns 설정 확인
+
+Q15
+
+`k exec hr -- nslookup mysql.payroll > /root/CKA/nslookup.out`
+
+- `nslookup`은 DNS Server에 원하는 도메인 정보(현재는 mysql.payroll)를 조회하는 명령어
+  - DNS Server로부터 여러가지 정보를 얻을 수 있는 명령어
+
+## Section11 명령어
+
+#### Cluster Installation using Kubeadm
+
+Q1. kubeadm과 kubelet을 1.30.0-1.1 버전으로 설치
+
+- https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+- 4단계의 `sudo apt-get install -y kubelet kubeadm kubectl`에서 버전 지정
+    - `sudo apt-get install -y kubelet=1.30.0-1.1 kubeadm=1.30.0-1.1 kubectl=1.30.0-1.1`
+
+
+Q5
+
+`ifconfig`
+
+- 네트워크 인터페이스 설정하거나 IP 주소, 서브넷마스크, MAC 주소, 네트워크 상태 확인 가능
+- 암기
+
+`kubeadm init --apiserver-advertise-address=192.15.114.12 --pod-network-cidr=10.244.0.0/16 --apiserver-cert-extra-sans=controlplane`
+
+- apiserver-advertise-address는 `ipconfig`에서 문제에 주어진 interface의 IP 주소 
+
+- 아래 명령어 실행해 kubeconfig 파일 설정 완료할 것
+
+```
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+Q7
+
+- Master node에서 `kubeadm init` 명령어 완료 시 나타난 메세지 중 join 복사 후 Worker node에 붙여넣기
+
+Q8
+
+- `kubeadm init` 시 addon 링크에서 flannel 찾아 배포
+    - `kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml`
+
+- flannel이 eth0 인터페이스와 상호작용하도록 수정
+    - `k edit daemonset [DAEMONSET NAME]`
+    - args에 `- --iface=eth0` 추가
