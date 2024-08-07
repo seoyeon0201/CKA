@@ -640,11 +640,89 @@ Q8
 
 #### 3. KubeConfig
 
+Q12
+
+`k config --kubeconfig=my-kube-config use-context research`
+
+- my-kube-config 이름의 config 파일의 current-context를 research로 변경
+
+`k config --kubeconfig my-kube-config current-context`
+
+- my-kube-config 파일의 current-context 조회
+
+Q13
+
+`cp my-kube-config ~/.kube/config`
+
+- 생성한 config 파일을 기본 config 파일 경로에 복사
+- 이때 /.kube/config와 ~/.kube/config는 다름
+  - ~/.kube/config로 해야함
+  - `~/.kube/config` = `$HOME/.kube/config`
 
 #### 4. RBAC
 
+Q3
+
+- `k get roles -A --no-headers | wc -l`
+
+Q8
+
+- `k auth can-i get pod --as dev-user` 또는 `k get pods --as dev-user`
+
+Q11
+
+- `k auth can-i create deployment --as dev-user -n blue`
+
+- rules의 resources가 deployments의 경우 apiGroups도 수정해야함
+
+```
+rules:
+- apiGroups: ["apps"]
+  #
+  # at the HTTP level, the name of the resource for accessing Deployment
+  # objects is "deployments"
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
 
 #### 5. Cluster Roles and Role Bindings
+
+Q2
+
+- `k get clusterroles --no-headers | wc -l`
+- 개수 카운트
+
+#### 6. Service Accounts
+
+Q12
+
+- `kubectl create token [SERVICE ACCOUNT NAME]`
+- service account의 token 생성
+
+#### 7. Image Security
+
+
+
+
+
+
+
+
+#### 8. Security Contexts
+
+
+
+
+
+
+#### 9. Network Policy
+
+
+
+
+
+
+
 
 
 

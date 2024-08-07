@@ -891,26 +891,711 @@ Q8
 
 ## KubeConfig
 
+#### Config file
+
+- 지금까지 사용자를 위해 Certificate를 생성하는 방법과 클라이언트가 Certificate 파일을 어떻게 사용하는지 확인 => curl 명령어를 통해 REST API를 쿼리하기 위함
+  - `curl https://my-kube-playground:6443/api/v1/pods --key admin.key --cert admin.crt --cacert ca.crt`
+  - Cluster 이름이 my-kube-playground
+  - kube-apiserver 주소로 curl 명령어 전송
+  - 이를 통해 apiserver가 사용자를 인증하기 위해 유효성 확인
+
+- BUT kubectl 유틸리티를 사용하면서 유효성 확인을 어떻게 진행하는가?
+  - `kubectl get pods --server my-kube-playground:6443 --client-key admin.key --client-certificate admin.crt --certificate-authority ca.crt`
+
+- BUT 매번 옵션을 넣을 수 없으므로 kubeconfig 파일에 해당 정보 입력
+  - `kubectl get pods --kubeconfig config`
+  `config`
+  ```
+  --server my-kube-playground:6443
+  --client-key admin.key
+  --client-certificate admin.crt
+  --certificate-authority ca.crt
+  ```
+  - 기본적으로 kubectl 유틸리티는 `$HOME/.kube/config` 경로의 config 파일을 찾음
+  - 따라서 해당 경로에 config 파일을 작성하면 옵션으로 지정할 필요 없음 => 현재까지 kubectl 명령 옵션을 지정하지 않은 이유
+
+#### KubeConfig File
+
+- 경로: `$HOME/.kube/config`
+
+| Config file에는 3가지 섹션 존재 => Clusters, Contexts, Users 
+
+1. Clusters
+
+- Cluster는 액세스가 필요한 다양한 Kubernetes cluster
+- 여러 개의 cluster를 Development 환경이나 Production 환경, 혹은 서로 다른 조직이나 Cloud Provider(Google)에 가지고 있다고 가정
+- Ex. Development, Production, Google
+
+2. Users
+
+- User는 cluster에 액세스 권한이 있는 사용자 계정
+- Ex. Admin, Dev User, Prod User
+- 이 사용자는 다른 cluster에서 다른 권한을 가짐
+
+3. Contexts
+
+- Cluster와 User가 Context에서 만남
+- Context는 어떤 사용자 계정 User가 어떤 Cluster에 액세스하기 위해 사용될지 정의
+- Ex. Admin@Production
+  - Admin 계정(User)을 이용해 Production Cluster에 액세스
+- Ex. Dev@Google
+  - Application을 테스트 배포하기 위해 Google Cluster에 Dev Credential로 액세스
+- 새로운 User를 생성해 Cluster에 액세스 권한을 설정하는 것이 아닌, **기존 User의 사용 권한을 Cluster에 접근하하도록 정의**
+  - 이를 통해 User Certificate와 Server Address를 지정할 필요가 없어짐
+
+- config 파일
+  `$HOME/.kube/config`
+  ```
+  --server my-kube-playground:6443  #Cluster
+  --client-key admin.key            #User
+  --client-certificate admin.crt    #User
+  --certificate-authority ca.crt    #Cluster
+  ```
+
+- config 파일 설정 후 context를 생성해 User를 Cluster에 액세스하도록 지정
+
+- KubeConfig File
+  - clusters.cluster.certificate-authority: CA Certificate
+  - clusters.cluster.server: Server Address
+
+
+  - users.user: client의 certificate와 key
+
+  ```
+  apiVersion: v1
+  kind: Config
+
+  clusters:
+  - name: my-kube-playground
+    cluster:
+      certificate-authority: ca.crt
+      server: https://my-kube-playground:6443
+
+  contexts:
+  - name: my-kube-admin@my-kube-playground
+    context:
+      cluster: my-kube-playground
+      user: my-kube-admin
+
+  users:
+  - name: my-kube-admin
+    user:
+      client-certificate: admin.crt
+      client-key: admin.key
+  ```
+
+- KubeConfig file에서 어떤 context를 선택할지
+  1. kubeconfig 파일에 `current context` 추가해 기본 context로 지정
+  ```
+  ...
+  kind: Config
+  current-context: dev-user@google
+  clusters:
+  ...
+  ```
+
+  2. kubectl 명령어 사용
+  - 기본 경로 config 파일 조회
+    - `kubectl config view`로 context 조회
+  - 기본 경로가 아닌 config 파일 조회
+    - `kubectl config view --kubeconfig=my-custom-config` 
+  - context 변경 => config 파일에 반영됨
+    - `kubectl config use-context prod-user@production`
+
+#### Namespace
+
+- 각 cluster는 내부에 여러 namespace를 가지고 구성
+- 특정 namespace로 전환하기 위해 context 구성하는 방법
+  - KubeConfig 파일의 `contexts.context.namespace` 필드 추가
+  - 자동으로 특정 namespace에 들어감
+
+#### Certificates in KubeConfig
+
+- KubeConfig 파일의 Certificates
+  - ca.crt, admin.crt, admin.key
+
+| Certificate를 지정하는 다른 방법 
+
+1. crt 파일 그대로 넘김
+- 전체 경로를 나타내는 것이 좋음
+  - ca.crt => `/etc/kubernetes/pki/ca.crt`
+  - admin.crt => `/etc/kubernetes/pki/users/admin.crt`
+  - admin.key => `/etc/kubernetes/pki/users/admin.key`
+
+  ```
+  apiVersion: v1
+  kind: Config
+
+  clusters:
+  - name: my-kube-playground
+    cluster:
+      certificate-authority: /etc/kubernetes/pki/ca.crt
+  ```
+
+2. 인증서 자체 콘텐츠 제공
+- crt 파일을 인코딩해 kubeconfig 파일에 복사 붙여넣기
+- `cat ca.crt | base64 -w 0` 값 복사 후 kubeconfig 파일에 붙여넣기
+- 디코드할 때에는 `echo "[인코딩값]" | base64 --decode`
+
+  ```
+  apiVersion: v1
+  kind: Config
+
+  clusters:
+  - name: my-kube-playground
+    cluster:
+      certificate-authority-data: [CRT FILE ENCODING]
+  ```
+
 ## Practice Test - KubeConfig
+
+Q12
+
+`k config --kubeconfig=my-kube-config use-context research`
+
+- my-kube-config 이름의 config 파일의 current-context를 research로 변경
+
+`k config --kubeconfig my-kube-config current-context`
+
+- my-kube-config 파일의 current-context 조회
+
+Q13
+
+`cp my-kube-config ~/.kube/config`
+
+- 생성한 config 파일을 기본 config 파일 경로에 복사
+- 이때 /.kube/config와 ~/.kube/config는 다름
+  - ~/.kube/config로 해야함
+  - `~/.kube/config` = `$HOME/.kube/config`
 
 ## API Groups
 
+- Cluster와 관련해 어떤 작업을 하든 kubectl 유틸리티나 REST를 통해 kube-apiserver와 상호작용 존재
+- Ex. 버전 확인 => `curl https://kube-master:6443/version`
+  - Master node의 kube-apiserver에 액세스
+  - 6443은 kube-apiserver port 번호
+  - `/version`에 주목
+- Ex. Pod list 조회 => `curl https://kube-master:6443/api/v1/pods`
+  - `/api`에 주목
+
+- Kubernetes API는 목적에 따라 여러 그룹으로 그룹화
+  - `/metrics`, `/healthz`, `/version`, `/api`, `/apis`, `/logs`
+
+- cluster 기능을 책임지는 API에 초점 맞춤
+
+  - `/api`
+    - Core Group
+    - /api/v1 내에 namespaces, pods, rc, events, endpoints, nodes, bindings, PV, PVC, configmaps, secrets, services 등
+
+
+  - `/apis`
+    - Named Group
+    - 조금 더 조직화되어 있음
+    - /apis 아래에 /apps, /extensions, /networking.k8s.io, /storage.k8s.io, /authentication.k8s.io, /certificates.k8s.io 존재 => `API Groups`
+    - 각 API Groups는 Resources를 가지고 Resources는 해당 리소스로 할 수 있는 Verbs을 가짐
+    - API Groups > Resources > Verbs
+    - Ex. /apis/apps/v1/deployments/list
+      - /apps는 API Groups, /deployments는 Resources, /list는 Verbs
+
+- `curl http://localhost:6443 -k` 입력시 사용 가능한 API Group 리스트가 나옴
+- `curl http://localhost:6443/apis -k | grep "name"` 입력시 Named Group 내에서 지원하는 Resource Group 반환 
+
+
+- `curl http://localhost:6443 -k`의 경우 접근할 수 없을 수 있으므로 `curl http://localhost:6443 -k --key admin.key --cert admin.crt --cacert ca.crt` 해야함
+
+#### kubectl proxy
+
+- kubectl proxy client 시작
+- local port 8001에서 proxy service 실행
+- Cluster 액세스를 위해 kubeconfig 파일의 Credential과 Certificate 사용해 curl 명령시 지정하지 않아도 됨
+- `curl http://localhost:8001 -k` => 루트에서 사용 가능한 모든 API 나열
+
+- `Kube proxy != Kubectl proxy`
+  - Kube proxy
+    - cluster 내 다양한 node에 걸쳐 pod와 service 간의 연결을 가능하게 하는 데 사용
+  - Kubectl proxy
+    - HTTP proxy service로, kubectl 유틸리티가 kube-apiserver에 액세스하기 위해 만든 것
+
+| API Group에 따라 사용자에 대한 액세스를 authorization 할 수 있음
+
 ## Authorization
+
+- 지금까지 Authentication에 대해 공부
+- 어떻게 cluster에 접속할 수 있는지
+- cluster에 접속한 이후의 작업에 대한 것이 Authorization
+
+#### Why Authorization?
+
+| Cluster에 Authorization이 필요한 이유
+
+- Admin User는 모든 종류의 작업을 수행할 수 있음
+- 다른 사람이 Cluster에 접근
+  - Ex. Admin, Developer, Tester, Monitoring Application 등
+- Cluster에 액세스할 계정 생성
+  - User name, password, token 생성, TLS Certification, Service Account 등
+- 모든 User가 같은 권한을 가지길 바라지 않음
+  - 볼 수는 있지만 수정은 할 수 없도록 
+  - 최소한의 액세스만 제공하기를 바람
+- Cluster를 서로 다른 조직이나 팀으로 공유할 때 논리적으로 namespace를 이용해 분할하여 사용자의 접근을 제한할 수 있음 => `Authorization이 도움`
+
+#### Authorization Mechanisms
+
+- Kubernetes가 지원하는 Authorization Mechanism은 다양함
+  - Node, ABAC, RBAC, Webhook 등
+
+1. Node Authorizer
+
+| Kubelet 관련
+
+- User
+  - kube-apiserver는 관리 목적으로 User에 의해 액세스됨
+- Kubelet
+  - cluster 내 관리 프로세스를 위해 cluster 내 node에서 kubelet도 kube-apiserver에 액세스
+  - kubelet은 2가지 동작
+    - Read
+      - Services, Endpoints, Nodes, Pods
+    - Write 
+      - Node status, Pod status, Events
+  - 이 작업들은 Node Authorizer가 처리
+
+- Certificate 이야기할 때 kubelet은 SYSTEM Group의 일부이기에 이름 앞에 SYSTEM:NODE가 붙는다고 이야기했음 => 이름: system:node:[NODE NAME]
+- system:node라는 이름과 system:node group의 일부로 사용자가 요청하면 **node authorizer가 승인하고 이러한 특권을 부여**
+- kubelet에는 특권이 요구됨 => cluster 내의 access
+
+#### ABAC
+
+| API의 외부 액세스 관련
+
+- User나 User Group을 Permission으로 연결
+- 개발자는 pod를 조회, 생성, 삭제할 수 있음
+
+- Policy 파일을 생성해 API Server에 넘김
+  - `{"kind": "Policy", "spec": {"user": "dev-user", "namespace": "*", "resource": "pods", "apiGroup": "*"}}`
+
+- 보안을 추가하거나 변경해야 할 때마다 이 Policy 파일을 수동으로 수정하고 kube-apiserver 재시작
+- 관리하기 어려움
+
+#### RBAC
+
+- ABAC보다 제어하기 쉬움
+- user나 group을 permission 집합으로 직접 연결하지 않고 role 정의 후 role과 연결
+- Ex. Developer를 위한 RBAC
+  1. Developer가 요구하는 권한 집합을 Role로 생성
+  2. 모든 개발자를 해당 Role에 연결
+
+- 즉 사용자에게 요구되는 권한 모음이 있다면 그 역할에 사용자 연결
+- 사용자의 액세스에 변화가 필요할 때마다 Role을 수정하기만 하면 됨
+  - 즉시 연결된 모든 User나 Group에 적용
+
+- Kubernetes cluster 내에서 액세스 관리에 좀 더 표준적인 접근법 제공
+
+#### Webhook
+
+| 모든 Authorization mechanism을 외부에 위탁하고 싶은 경우
+
+- 내장 메커니즘을 사용하지 않고 외부에서 권한을 관리하고 싶음
+
+- Ex. Open Policy Agent
+  - 액세스 통제와 승인을 도움
+  1. Kubernetes가 사용자에 관한 정보와 요구 사항 액세스 정보를 포함해 Open Policy Agent에 kube API call
+  2. Open Policy Agent가 사용자의 허용 여부 결정하게 함
+  3. 그 응답에 근거해 사용자는 액세스 권한 부여 받음
+
+#### Authorization Mode
+
+- Node, ABAC, RBAC, WEBHOOK 외에 AlwaysAllow와 AlwaysDeny mode 존재
+
+- Authorization mode는 kube-apiserver의 `--authorization-mode` 옵션에 지정
+- option을 설정하지 않으면 기본 설정은 `AlwaysAllow`
+- 2개 이상을 나열해 설정할 수 있는데 이 경우 지정된 순서대로 각각의 요청을 사용할 권한이 부여됨
+  - 모듈이 요청을 거부할 때마다 다음 체인의 모듈로 전달되고 승인되면 더는 확인하지 않고 사용자가 승인받음
+  - Ex. --authorization-mode=Node,RBAC,Webhook
+    1. 사용자가 요청을 보내면 Node Authorization이 먼저 처리
+    - Node 요청만 처리해 Deny
+    2. RBAC에서 처리
+    - 사용자를 확인하고 승인
+    - 승인이 완료되면 사용자는 요청된 개체에 접근할 수 있음
 
 ## Role Based Access Controls
 
+#### RBAC
+
+1. Role object 생성
+
+- Role 하나에 여러 규칙 추가 가능
+
+- YAML File
+  - `rules.apiGroups`
+    - Core Group은 비워둘 수 있음
+    - 다른 Group은 이름을 지정해야 함
+  - `rules.resources`
+    - User에게 제공하고 싶은 리소스
+  - `rules.verbs`
+    - resource가 취할 수 있는 행동 
+
+`developer-role.yaml`
+```
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+rules:
+- apiGroups: ["*"]
+  resources: ["pods"]
+  verbs: ["list","get","create","update","delete"]
+- apiGroups: [""]
+  resources: ["ConfigMap"]
+  verbs: ["create"]
+```
+
+`kubectl apply -f developer-role.yaml`
+
+2. RoleBinding object 생성
+
+- RoleBinding object로 User에게 Role 연결
+
+- YAML File
+  - `subjects`
+    - User 세부 정보 지정
+  - `roleRef`
+    - 연결할 Role의 세부 정보 제공
+
+`devuser-developer-binding.yaml`
+```
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: devuser-developer-binding
+subjects:
+- kind: User
+  name: dev-user
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: developer
+  apiGroup: rbac.authorization.k8s.io
+```
+`kubectl apply -f devuser-developer-binding.yaml`
+
+- **Role과 RoleBinding은 Namespace 아래에 존재하는 Object**
+- 즉 dev-user는 기본 namespace에서 Pod와 ConfigMap에 접근할 수 있음
+- 다른 namespace에서 개발자 접근을 제한하고 싶은 경우 정의 파일의 metadata 아래에 namespace 필드 추가
+
+#### View RBAC
+
+- `kubectl get roles`
+- `kubectl get rolebindings`
+- `kubectl describe role [ROLE NAME]`
+- `kubectl describe rolebinding [ROLEBINDING NAME]`
+
+#### Check Access
+
+1. 본인 User가 Cluster의 특정 리소스에 접근할 수 있는지 확인하는 방법 
+- `kubectl auth can-i [VERB] [RESOURCE]`
+- Ex. `kubectl auth can-i create deployments`
+  - 현재 User로 deployment를 생성할 수 있는가?
+
+2. (Admin User인 경우) 다른 User가 권한을 받았는지 확인할 수 있음
+- `kubectl auth can-i [VERB] [RESOURCE] --as [USER NAME]`
+- Ex. `kubectl auth can-i create deployments --as dev-user`
+  - dev-user 이름의 User가 deployment를 생성할 수 있는가?
+
+3. 위 2개의 명령어에 namespace 지정 가능
+- `kubectl auth can-i create pods --as dev-user --namespace test`
+  - dev-user가 test namespace에서 pod를 생성할 수 있는가?
+
+#### Resource Names
+
+- 특정 리소스에만 접근할 수 있도록 설정 가능
+  - `rules.resourceNames`에 액세스하기를 원하는 리소스 이름 작성
+  - 아래 에시에서는 blue pod와 orange pod에만 접근 가능
+
+`developer-role.yaml`
+```
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+rules:
+- apiGroups: ["*"]
+  resources: ["pods"]
+  verbs: ["list","get","create","update","delete"]
+  resourceNames: ["blue","orange"]
+```
+
 ## Practice Test - RBAC
+
+Q3
+
+- `k get roles -A --no-headers | wc -l`
+
+Q8
+
+- `k auth can-i get pod --as dev-user` 또는 `k get pods --as dev-user`
+
+Q11
+
+- `k auth can-i create deployment --as dev-user -n blue`
+
+- rules의 resources가 deployments의 경우 apiGroups도 수정해야함
+
+```
+rules:
+- apiGroups: ["apps"]
+  #
+  # at the HTTP level, the name of the resource for accessing Deployment
+  # objects is "deployments"
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
 
 ## Cluster Roles and Role Bindings
 
+#### Roles
+
+- Role과 RoleBinding은 Namespace 아래에 존재
+- Namespace를 지정하지 않으면 Default namespace가 설정되고 그 안에서만 액세스 제어 가능
+
+#### Namespace
+
+- Namespace에서 node를 그룹화하거나 격리할 수 있는가?
+  - => 불가능
+  - Cluster wide 또는 Cluster 범위 리소스
+
+- 리소스는 Namespace scope와 Cluster scope로 분류
+
+1. Namespaced
+
+- pods, replicasets, jobs, deployments, services, secrets, roles, rolebindings, configmaps, PVC
+
+- Namespaced Resource는 생성할 때 지정한 namespace에서 생성
+- Namespace를 지정하지 않으면 Default namespace에서 생성
+
+- `kubectl api-resources --namespaced=true`로 모든 리소스 조회 가능
+
+2. Cluster Scoped
+
+- 생성 시 namespace를 지정하지 않아도 되는 리소스
+- nodes, PV, clusterroles, clusterrolebindings, certificatesigningrequests, namespaces
+
+- `kubectl api-resources --namespaced=false`로 namespace resource가 아닌 모든 리소스 조회 가능
+
+- 지난 강의에서 Namespaced resource를 User에게 승인하는 방법 다룸
+  - Role, RoleBinding    
+- 그럼 Cluster Scoped 리소스는 어떻게 User에게 권한 부여(Authorization)하는가?
+  - => `ClusterRole과 ClusterRoleBinding 사용`
+
+#### Cluster Roles and Cluster Role Bindings
+
+1. clusterroles
+
+- cluster 범위 리소스에서만 동작하는 것을 제외하면 role과 동일 
+- Ex1. Cluster Admin role은 cluster admin 권한을 제공하기 위해 생성될 수 있음
+  - cluster에서 node를 조회, 생성, 삭제 가능
+- Ex2. Storage Admin role
+  - PV 조회 및 생성, PVC 삭제 가능
+
+`cluster-admin-role.yaml`
+```
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-administrator
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list","get","create","delete"]
+```
+
+`k apply -f cluster-admin-role.yaml`
+
+2. clusterrolebinding
+
+- User에게 cluster role 연결
+
+`cluster-admin-role-binding.yaml`
+```
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-admin-role-binding
+subjects:
+- kind: User
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-administrator
+  apiGroup: rbac.authorization.k8s.io
+```
+
+`k apply -f cluster-admin-role-binding.yaml`
+
+- Cluster role과 Cluster Role Binding으로 Namespaced 리소스에 대한 권한도 부여할 수 있음
+  - Cluster Role과 Cluster Role Binding으로 Namespace에 한정되지 않고 리소스에 접근하는 권한을 가질 수 있음
+
 ## Practice Test - Cluster Roles and Role Bindings
 
--65
---0805
+Q2
+
+- `k get clusterroles --no-headers | wc -l`
+- 개수 카운트
 
 ## Service Accounts
 
+- Service Account는 Kubernetes의 다양한 Security 개념과 관련
+  - Authentication, Authorization(RBAC)
+
+- Kubernetes Account는 두 종류
+  1. User Account
+  - 사람이 사용
+  - Ex. 관리 작업을 수행하기 위해 cluster에 액세스하는 Admin, Application을 배포하기 위해 cluster에 액세스하는 Developer
+  2. Service Account
+  - 컴퓨터가 사용
+  - Kubernetes Group과 상호작용하기 위해 application이 사용하는 계정
+  - Ex. monitoring application (Ex. Prometheus), 자동 빌드된 도구(Ex. Jenkins)
+
+#### Demo-Kubernetes Dashboard Application
+
+- My Kubernetes Dashboard
+- Cluster의 Pod 목록 조회 애플리케이션
+- kubernetes API에 요청을 보내 웹페이지에 디스플레이
+- Application이 Kubernetes API를 쿼리하려면 Authentication 과정을 거쳐야 함 => `ServiceAccount 사용`
+
+#### Service account
+
+- `k create serviceaccount dashboard-sa`
+  - service account 생성
+- `k get serviceaccount`
+  - service account 조회
+
+- Service account가 생성되면 자동으로 `token` 생성  
+  - Service account token은 kubernetes API에 인증을 하는 동안 외부 application이 반드시 사용해야 하는 것
+  - 이때 **token은 secret 객체로 저장**
+
+- Service account가 생성되면 
+  1. Service account 객체 생성
+  2. Service account를 위한 token 생성
+  - Secret 객체 생성하고 그 안에 token 저장
+    - Secret name = service account의 token name
+  - secret 객체는 service account와 연결
+  - token 조회 => `k describe secret [SERVICE ACCOUNT TOKEN NAME]`
+  - 이 token은 API에 call하는 동안 사용하는 authentication bearer token
+    - 즉 `curl https://192.168.56.70:6443/api -insecure --header "Authorization: Bearer [TOKEN DATA (= SECRET 내용)]"`
+    - header로 토큰값을 전송하면 API call 가능
+
+- 현재까지 service account를 생성하고 올바른 permission을 제공(RBAC)하고 token을 추출해 kubernetes authentication에 사용 가능
+
+- BUT 타사 application이 kubernetes cluster에 호스트되어있다면?
+  - kubernetes 자체에 application 또는 prometheus application 배포
+  - service account token을 추출하고 application에 사용해야 함
+  - 이때 **자동으로 service account secret을 pod 내의 volume에 마운트**하면 쉬움
+  - API에 접근할 수 있는 token이 이미 pod 내에 존재해 application이 쉽게 읽을 수 있으며 수동으로 제공할 필요 없음
+
+#### Pod & Service account
+
+- kubernetes의 모든 namespace에 "default" 이름을 가진 service account가 자동으로 생성됨
+- 각각의 namespace는 고유의 default service account를 가짐
+  - default service account는 매우 제한되어 기본적인 kubernetes API 쿼리만 실행할 권한 있음
+- Pod가 생성될 때마다 default service account와 token이 해당 pod에 자동으로 volume mount됨
+- Volume이 자동으로 생성되어 마운트되며, 해당 volume은 service account에 관한 token이 포함된 Secret 형태
+  - `k describe pod [POD NAME]`으로 조회 가능
+  - secret token은 /var/run/secrets/kubernetes.io/serviceaccount
+
+- Pod 내부에서 service account에 `ls` 명령어 실행하면 secret이 3개로 나뉘어 존재
+  - `k exec -it [POD NAME] -- ls [SECRET ACCOUNT 마운트 경로]`
+  - `k exec -it my-kubernetes-dashboard -- ls /var/run/secrets/kubernetes.io/serviceaccount`
+  - `ca.crt`, `namespace`, `token`
+  - 주목할 것은 **token**
+  - 실제 token을 가진 파일
+  - token 조회 => `k exec -it my-kubernetes-dashboard cat /var/run/secrets/kubernetes.io/serviceaccount/token`
+  - kubernetes API 액세스에 사용될 token
+
+
+- Pod에 service account 지정
+  - `spec.serviceAccountName` 필드 추가
+
+  `pod-definition.yaml`
+  ```
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-kubernetes-dashboard
+  spec:
+    containers:
+    - name: my-kubernetes-dashboard
+      image: my-kubernetes-dashboard
+    serviceAccountName: dashboard-sa
+  ```
+
+- Kubernetes는 service account를 설정하지 않으면 기본적으로 default service account를 자동으로 마운트
+  - 자동으로 마운트하지 않도록 할 수 있음
+  - `spec.automountServiceAccountToken: false`
+
+  `pod-definition.yaml`
+  ```
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-kubernetes-dashboard
+  spec:
+    containers:
+    - name: my-kubernetes-dashboard
+      image: my-kubernetes-dashboard
+    automountServiceAccountToken: false
+  ```
+
+#### 변경사항
+
+- pod가 생성되면 자동으로 serviceaccount와 pod를 연결해 volume mount 진행
+- 이를 통해 pod 내에서 실행중인 프로세스에 token이 접근할 수 있게 되고 그로 인해 kubernetes API 쿼리가 가능 (여기까지 동일)
+
+- BUT 이때 token을 디코딩하거나 JWT 웹사이트에 복사 붙여넣기 하면 만료 날짜가 설정되어 있지 않음을 알 수 있음
+  - Kubernetes Service account token은 JWT 보안과 확장성과 관련해 문제 존재
+  - Service account가 존재하는 한 JWT는 유효
+  - 또한 각 JWT는 service account 당 별개의 secret 객체를 필요 => 확장성 문제 존재
+
+- Version 1.22
+  - TokenRequestAPI는 API를 통해 더 안전하고 확장 가능한 kubernetes service account token의 프로비저닝을 위한 메커니즘으로 소개
+  - TokenRequestAPI로 생성된 token 특징
+    - Audience Bound
+    - Time Bound
+    - Object Bound
+  - 따라서 Pod를 생성하면 service account에 의존하지 않고 tokenRequestAPI로 생성되어 Projected volume으로 저장
+
+- Version 1.24
+  - 과거에는 service account가 생성되면 자동으로 secret을 생성했고 만료되지 않았으며 고객에 묶여있지 않았음
+  - service account를 사용하는 pod에 자동으로 volume mount 됨
+  - BUT 현 버전에서는 serviceaccount 생성 시 자동으로 secret이나 token을 생성하지 않음
+  - 즉 token을 생성하려면 `k create token [SERVICE ACCOUNT NAME]` 명령어 실행해야 함
+    - token은 기본 1시간
+
+- Version 1.24 이후
+  - 만료되지 않는 token으로 secret을 만들고 싶다면 `kubernetes.io/service-account-token` type의 secret을 만들 수 있음
+  - `metadata.kubernetes.io/service-account.name`: 특정 service account와 secret 연결
+
+
+  `secret-definition.yaml`
+  ```
+  apiVersion: v1
+  kind: Secret
+  type: kubernetes.io/service-account-token
+  metadata:
+    name: mysecretname
+    annotations:
+      kubernetes.io/service-account.name: dashboard-sa
+  ```
+
+- Service account token Secret 관련 문서
+  - service account token Secret 객체는 TokenRequest API를 사용할 수 없는 경우에만 생성해야 함
+  - TokenRequest API로부터 얻은 token은 secret으로 생성된 token보다 더 안전
+
 ## Practice Test - Service Accounts
+
+Q12
+
+- `kubectl create token [SERVICE ACCOUNT NAME]`
+- service account의 token 생성
 
 ## Image Security
 
@@ -927,6 +1612,3 @@ Q8
 ## Developing network policies
 
 ## Practice Test - Network Policy
-
--115
---0806
