@@ -565,6 +565,176 @@ etcdctl snapshot save --cacert="/etc/kubernetes/pki/etcd/ca.crt" --cert="/etc/ku
 
 | 다중 클러스터의 경우도 있는데, 이는 section6 참고할 것 => 복잡
 
+## Section7 명령어
+
+#### 1. View Certification Details
+
+Q1. Identify the certificate file used for the kube-api server
+
+- `k get pods -A`에서 pod로 배포되었으므로 kubeadm 사용한 것
+- `k describe pod [CONTROLPLANE POD] -n kube-system`
+  - `--tls-cert-file=/etc/kubernetes/pki/apiserver.crt` 옵션이 kube-api server certificate file
+
+- 이때 key와 certificate 구분 !
+  - key는 .key
+  - certificate는 .crt
+
+Q6. What is the Common Name (CN) configured on the Kube API Server Certificate?
+
+`openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text -noout`
+
+- openssl에 -in 옵션 뒤에 certificate 경로 넣기
+
+Q12
+
+- kubectl이 동작하지 않는 경우 docker를 사용하는 경우는 `docker` command, cri-o를 사용하는 경우 `crictl` 명령어 사용
+  - `docker ps -a` or `crictl ps -a`
+  - 이때 방금 생성된 container, 즉 running 상태의 container log 확인 => "2379 port 번호로 etcd에 문제가 있음을 알아차림"
+  - `docker logs [CONTAINER ID]` or `crictl logs [CONTAINER ID]`
+- 오류 메세지 경로 찾기
+  - `ls /etc/kubernetes/pki/etcd`에 server-certificate.crt 존재 X
+- `/etc/kubernetes/manifests/etcd.yaml | grep server-certificate.crt`
+  - server-certificate.crt가 존재하는 --cert-file을 올바르게 변경
+- 시간 오래 소요
+
+Q13
+
+- `/etc/kubernetes/manifests/etcd.yaml`와 같이 /etc/kubernetes/manifests 아래에 구성 요소 yaml 파일 존재 
+
+- kube-apiserver yaml 파일에는 ca가 2개 존재하는데 --client-ca-file은 kube-apiserver의 ca.crt로 ../pki/ca.crt, --etcd-cafile은 /pki/etcd/ca.crt 
+- 나머지 certificate와 key는 모두 pki 아래에 존재
+- 즉, etcd의 ca.crt만 pki/etcd 아래에 존재하고 나머지는 모두 pki에 존재
+
+![alt text](image-144.png)
+
+- etcd는 모두 pki/etcd 아래에 존재
+
+![alt text](image-145.png)
+
+#### 2. Certificates API
+
+Q2
+
+`cat [CSR NAME] | base64 -w 0`
+
+- `-w 0`을 안 하면 한 줄이 아니게 되어 오류 발생 => 반드시 작성해야 함
+- base64로 인코딩한 값을 YAML 파일에 작성
+
+Q4
+
+`kubectl certificate approve [CSR NAME]`
+
+- 승인시켜줘야 함
+
+Q7
+
+`k get csr agent-smith -o yaml > smith.yaml`
+
+- csr의 group을 보려면 describe가 아닌 yaml 파일로 확인해야 함
+
+Q8
+
+`kubectl certificate deny [CSR NAME]`
+
+- csr 거절
+
+#### 3. KubeConfig
+
+Q12
+
+`k config --kubeconfig=my-kube-config use-context research`
+
+- my-kube-config 이름의 config 파일의 current-context를 research로 변경
+
+`k config --kubeconfig my-kube-config current-context`
+
+- my-kube-config 파일의 current-context 조회
+
+Q13
+
+`cp my-kube-config ~/.kube/config`
+
+- 생성한 config 파일을 기본 config 파일 경로에 복사
+- 이때 /.kube/config와 ~/.kube/config는 다름
+  - ~/.kube/config로 해야함
+  - `~/.kube/config` = `$HOME/.kube/config`
+
+#### 4. RBAC
+
+Q3
+
+- `k get roles -A --no-headers | wc -l`
+
+Q8
+
+- `k auth can-i get pod --as dev-user` 또는 `k get pods --as dev-user`
+
+Q11
+
+- `k auth can-i create deployment --as dev-user -n blue`
+
+- rules의 resources가 deployments의 경우 apiGroups도 수정해야함
+
+```
+rules:
+- apiGroups: ["apps"]
+  #
+  # at the HTTP level, the name of the resource for accessing Deployment
+  # objects is "deployments"
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
+
+#### 5. Cluster Roles and Role Bindings
+
+Q2
+
+- `k get clusterroles --no-headers | wc -l`
+- 개수 카운트
+
+#### 6. Service Accounts
+
+Q12
+
+- `kubectl create token [SERVICE ACCOUNT NAME]`
+- service account의 token 생성
+
+#### 7. Image Security
+
+Q3
+
+- registry 지정하지 않으면 Docker Hub에서 가져오기에 registry 지정
+
+Q5
+
+- `k create secret docker-registry private-reg-cred --docker-username=dock_user --docker-server=myprivateregistry.com:5000 --docker-password=dock_password --docker-email=dock_user@myprivateregistry.com`
+  - Secret을 docker-registry 형태로 생성
+
+#### 8. Security Contexts
+
+Q1
+
+- `ps aux`
+  - 실행중인 프로세스 조회
+
+- 또는 `kubectl exec ubuntu-sleeper -- whoami`
+
+Q2
+
+- `k edit pod [POD NAME]` 후 (1) `k replace -f [YAML 파일] --force` 또는 (2) `k delete pod [POD NAME]` > `k apply -f [YAML 파일]`
+- `ps aux`로 User 조회
+
+Q3
+
+- Container 레벨이 Pod 레벨보다 높아 Container에 적용한 User 사용
+
+#### 9. Network Policy
+
+Q10
+
+- Service를 조회해 label과 port 찾아 podSelector와 ports 작성
+
+
 ## Section8 명령어
 
 #### 1. Volume, PV, PVC
