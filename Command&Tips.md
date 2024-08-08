@@ -932,3 +932,24 @@ Q8
 - flannel이 eth0 인터페이스와 상호작용하도록 수정
     - `k edit daemonset [DAEMONSET NAME]`
     - args에 `- --iface=eth0` 추가
+
+## Section13 명령어
+
+#### Application Failure
+
+| 문제 풀기 전에 `tab` 눌러서 오류 원인 찾고 그 주변으로 문제 찾기
+
+| Pod의 env, Service의 ports, Pod와 Service 사이의 label과 selector 중 하나
+
+Q1
+
+- `k config set-context --current --namespace alpha`
+    - alpha namespace를 기본으로 변경
+
+- NodePort service의 경우 `curl [SERVICE IP]:[SERVICE TARGET PORT]`
+
+#### Control Plane Failure
+
+#### Worker Node Failure
+
+#### Network Troubleshooting
