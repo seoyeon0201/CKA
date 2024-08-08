@@ -701,29 +701,38 @@ Q12
 
 #### 7. Image Security
 
+Q3
 
+- registry 지정하지 않으면 Docker Hub에서 가져오기에 registry 지정
 
+Q5
 
-
-
-
+- `k create secret docker-registry private-reg-cred --docker-username=dock_user --docker-server=myprivateregistry.com:5000 --docker-password=dock_password --docker-email=dock_user@myprivateregistry.com`
+  - Secret을 docker-registry 형태로 생성
 
 #### 8. Security Contexts
 
+Q1
 
+- `ps aux`
+  - 실행중인 프로세스 조회
 
+- 또는 `kubectl exec ubuntu-sleeper -- whoami`
 
+Q2
 
+- `k edit pod [POD NAME]` 후 (1) `k replace -f [YAML 파일] --force` 또는 (2) `k delete pod [POD NAME]` > `k apply -f [YAML 파일]`
+- `ps aux`로 User 조회
+
+Q3
+
+- Container 레벨이 Pod 레벨보다 높아 Container에 적용한 User 사용
 
 #### 9. Network Policy
 
+Q10
 
-
-
-
-
-
-
+- Service를 조회해 label과 port 찾아 podSelector와 ports 작성
 
 
 ## Section8 명령어

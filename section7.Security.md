@@ -1599,16 +1599,520 @@ Q12
 
 ## Image Security
 
+#### Image
+
+- 다양한 application을 호스팅하는 다양한 pod 배포
+  - web application, database, redis cache 등
+
+- 예시: `image: nginx`
+
+- nginx image를 가지는 pod
+
+  `nginx-pod.yaml`
+  ```
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: nginx-pod
+  spec:
+    containers:
+    - name: nginx
+      image: nginx
+  ```
+
+- image: `nginx`
+  - 이름은 docker image name convention에 따름
+  
+  - nginx는 원래 `library/nginx`
+    - `library`: 첫 번째 부분은 보통 User 또는 Account 이름. BUT 사용자나 계정 이름을 제공하지 않으면 library라고 인식
+      - library란, docker의 공식 이미지가 저장되는 기본 계정의 이름
+      
+    - `nginx`: 이미지 혹은 repository 이름
+
+- 자신의 계정을 만들고 그 아래에 리포지토리 혹은 이미지를 만든다면 비슷한 패턴 사용할 것
+  - library 대신 계정이나 회사 이름, nginx 대신 이미지 이름
+
+- image를 어디에서 가져왔는가?
+  - 지정하지 않은 경우 docker의 기본 registry인 Docker Hub로 추정
+    - Docker Hub DNS 이름이 docker.io
+    - registry란 모든 image를 저장하는 곳
+      - Ex. docker.io, gcr.io
+    - 새 image를 생성하거나 업데이트할 때마다 registry에 푸쉬하면 누군가 이 application을 배포할 때마다 registry에서 끌어와 사용
+  - image: `docker.io/library/nginx`
+
+#### Private Repository
+
+- Docker registry, Google registry, 또는 내부 사설 registry에서 사설 repository를 만들 수 있음
+  - Credential 사용해 접근 가능하도록
+- Docker registry의 경우
+  1. image를 이용해 container 실행하려면 먼저 개인 registry에 로그인해야 함
+  - `docker login private-registry.io`
+  2. docker image로 application 실행
+  - private-registry의 image를 이용해 application 실행
+  - `docker run private-registry.io/apps/internal-app`
+  3. pod에서 private-registry image 사용
+  - image로 private-registry.io/apps/internal-app 사용
+
+
+- Kubernetes 안에서 imgae가 Worker node의 docker runtime에 의해 실행된다는 것을 알고 있음
+- Worker node에서 자격 증명을 docker rntime에 전달하는 방법
+  1. secret 생성
+  - docker registry secret은 regcred라는 이름
+  - `kubectl create secret docker-registry regcred --docker-server=[SERVER NAME] --docker-username=[USER NAME] --docker-password=[PASSWORD] --docker-email=[EMAIL] `
+
+  2. Pod definition file에 docker registry 관련 secret 지정
+  - `imagePullSecrets` 필드 추가
+  `nginx-pod.yaml`
+  ```
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: nginx-pod
+  spec:
+    containers:
+    - name: nginx
+      image: private-registry.io/apps/internal-apps
+    imagePullSecrets: regcred
+  ```
+
+  - Pod가 생성되면 Worker node에 있는 kubernetes 혹은 kubelet은 secret에 있는 credential을 이용해 image 가져옴
+
 ## Practice Test - Image Security
+
+Q3
+
+- registry 지정하지 않으면 Docker Hub에서 가져오기에 registry 지정
+
+Q5
+
+- `k create secret docker-registry private-reg-cred --docker-username=dock_user --docker-server=myprivateregistry.com:5000 --docker-password=dock_password --docker-email=dock_user@myprivateregistry.com`
+  - Secret을 docker-registry 형태로 생성
+
 
 ## Pre-requisite - Security in Docker
 
+- Security Context를 이야기하기 전에 Docker Security를 공부해야 함
+
+#### Security
+
+- Docker가 설치된 Host에서 시작
+- Host는 다수의 OS 프로세스, Docker daemon, ETCD Server 등 프로세스 집합을 가짐
+- 이 host에서 ubuntu image의 container 실행
+  - `docker run ubuntu sleep 3600`
+  - 1시간동안 sleep하는 container
+
+- Virtual Machine과 달리 container는 host로부터 완전히 격리되지 않음
+  - Container와 Host가 같은 kernel 공유
+  - Container는 Linux에서 namespace를 이용해 격리
+  - Host도 Host만의 namespace 존재
+  
+- Container에 의해 실행되는 모든 프로세스는 host 자체에서 실행되지만 고유의 namespace에서 실행됨
+  - Docker container는 고유의 namespace가 있어 고유의 프로세스만 볼 수 있음
+    - 바깥이나 다른 namespace에서는 볼 수 없음
+  - Docker container 내에서 프로세스를 나열하면 PID(Process ID) 1임을 볼 수 있음
+    - `ps aux`
+- Docker host에서 그 자체의 모든 프로세스는 시스템 내의 또다른 프로세스의 눈에 띔
+- Host에서 프로세스를 리스트로 만들면 다른 PID를 가짐
+  - 이는 프로세스가 `다른 namespace에 다른 PID를 가질 수 있기 때문` => Docker가 시스템 내에서 container를 격리하는 방법. `Isolation`
+
+#### Security - Users
+
+- Docker host는 사용자 집합을 가짐
+  - Root User, 다수의 비루트 유저
+- Default로 Docker는 root 사용자로서 container 내의 프로세스 실행
+- container 안과 밖의 프로세스는 root 사용자로 실행
+
+- Container 내의 프로세스가 root 사용자로 실행되길 원하지 않는 경우
+  방법 1. 사용자 ID를 명시해 사용자 설정
+  - `--user` 옵션 사용
+  - `docker run --user=1000 ubuntu sleep 3600`
+  방법 2. Docker image 자체에서 사용자 정의
+  - Dockerfile에 USER 정의
+  ```
+  FROM ubuntu
+  USER 1000
+  ```
+  - `docker build -t my-ubuntu-image .`
+  - `docker run my-ubuntu-image sleep 3600`
+
+#### 의문점 제시
+- root 사용자로서 container를 실행하면 어떻게 되는가
+- container 안의 root User와 host의 root User가 같은가?
+- container 안의 프로세스도 root User가 시스템에서 할 수 있는 것을 할 수 있는가?
+  - 그렇다면 위험한 것 아닌가?
+
+- Docker는 container 내 **root User의 능력을 제한**하는 보안 기능 집합 구현
+  - container 안의 root User는 host의 root User와 다름
+  - Docker는 이를 구현하기 위해 Linux 기능 사용 => Linux Capabilities
+
+#### Linux Capabilities
+
+- root User는 시스템에서 가장 강력한 User
+- root User는 뭐든 할 수 있고 root User에 의한 프로세스도 마찬가지로 시스템에 제한 없이 접근할 수 있음
+- User가 사용할 수 있는 기능을 제어하고 제한 가능
+- Default로 Docker는 기능이 제한되어 있지만 container 실행
+- container에서 실행되는 프로세스는 host를 재부팅하거나 같은 host에서 실행되는 host나 다른 container를 방해할 수 있는 작업을 수행할 수 없음
+
+- 동작을 재정의하고 추가적인 특권을 제공하고 싶다면 `--cap-add` 옵션 사용
+  - `docker run --cap-add MAC_ADMIN ubuntu`
+- 특권을 없애고 싶다면 `--cap-drop` 옵션 사용
+  - `docker run --cap-drop KILL ubuntu`
+- 모든 권한이 활성화된 container를 실행하고 싶으면 `--privileged` 옵션 사용
+
 ## Security Context
+
+#### Container Security
+
+- Docker container 실행할 때 Security 표준 집합을 정의하는 옵션 존재
+  - `--user`
+    - 실행하는데 사용된 userID 
+  - `--cap-add`
+    - container 권한 추가
+  - `--cap-drop`
+    - container 권한 삭제
+  - `--privileged`
+    - 모든 권한 활성화
+
+#### Kubernetes Security
+
+- Kubernetes에서는 Container를 Pod에 넣어 보관
+- Container level이나 Pod level에서 Security 설정 가능
+  - `Pod level`
+    - Pod 내 모든 container에 설정값이 전달
+  - Pod와 Container에 security 값 구성하면 container security 설정이 적용
+
+- Pod level
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-pod
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+  - name: ubuntu
+    image: ubuntu
+    command: ["sleep", "3600"]
+```
+
+- Container level
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-pod
+spec:
+
+  containers:
+  - name: ubuntu
+    image: ubuntu
+    command: ["sleep", "3600"]  
+    securityContext:
+      runAsUser: 1000
+```
+
+- 기능 추가
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-pod
+spec:
+
+  containers:
+  - name: ubuntu
+    image: ubuntu
+    command: ["sleep", "3600"]  
+    securityContext:
+      runAsUser: 1000
+      capabilities:
+        add: ["MAC_ADMIN"]
+```
 
 ## Practice Test - Security Contexts
 
+Q1
+
+- `ps aux`
+  - 실행중인 프로세스 조회
+
+- 또는 `kubectl exec ubuntu-sleeper -- whoami`
+
+Q2
+
+- `k edit pod [POD NAME]` 후 (1) `k replace -f [YAML 파일] --force` 또는 (2) `k delete pod [POD NAME]` > `k apply -f [YAML 파일]`
+- `ps aux`로 User 조회
+
+Q3
+
+- Container 레벨이 Pod 레벨보다 높아 Container에 적용한 User 사용
+
 ## Network Policy
+
+#### Network Security
+
+- Pod와 Service 세트를 호스팅하는 Node 집합 cluster 존재
+- Node마다 IP 주소가 있고 Pod마다 Service 존재
+- Kubernetes Networking 전제 조건 중 하나는 경로 설정없이 pod가 서로 통신할 수 있어야 하는 것 
+  - 이 Network solution에서는 모든 pod가 Virtual Private Network에 있고, Kubernetes cluster 내 Node를 가로지르며 기본값으로 통신 가능
+  - IP, pod name, service 사용
+
+- **Kubernetes는 기본으로 허용 규칙으로 구성**
+  - 어떤 pod든 traffic이 다른 pod든 또는 cluster 내의 service가 가능하도록 허용
+
+
+#### Traffic
+
+- Example: Web application과 Database server를 통한 트래픽
+
+  - 사용자에게 frontend를 서비스하는 web server
+  - 백엔드 API를 서비스하는 application
+  - database server
+
+- 동작 과정
+  - 사용자는 port 80에 있는 web Server에 요청 전송
+  - Web Server는 port 5000 백엔드 API Server에 요청 전송
+  - API Server는 port 3306 Database Server에서 데이터 패치
+  - API Server가 사용자에게 다시 데이터 전송
+
+- 두 가지 유형의 Traffic 존재
+  - Ingress
+  - Egress
+
+- `Web Server`
+  - Ingress: 사용자
+  - Egress: API Server
+
+- `API Server`
+  - Ingress: Web Server
+  - Egress: Database
+
+- `Database`
+  - Ingress: API Server
+  - Egress: API Server
+
+- Application의 각 구성 요소에 대해 pod 배포
+  - Web Pod
+    - 프론트엔드 웹 서버
+  - API Pod
+    - 백엔드 서버
+  - DB Pod
+    - Database 서버
+
+- Pod 사이의 통신이 가능하도록 Service 생성
+- BUT Web Pod가 DB Pod와 직접적으로 통신하는 것을 원하지 않음 => `Network Policy` 사용
+  - API Pod만 DB Pod에 트래픽 허용하도록
+
+#### Network Policy
+
+- Kubernetes namespace 아래에 존재하는 객체
+- 하나 이상의 pod에 Network Policy 링크
+- Network policy 내에서 규칙 정의 가능
+  - Ex. DB service port인 3306은 API Pod만 접근 가능 
+- Network Policy를 설정하면 모든 트래픽을 차단하고 지정한 규칙에 부합하는 트래픽만 허용
+
+#### Network Policy - Selectors
+
+- Network policy를 pod에 적용하고 링크하는 방법
+
+1. pod에 label을 붙임
+2. Network policy의 podSelector.matchLabels 사용해 pod와 매칭
+3. Network policy의 Rule 생성
+
+#### Network Policy 
+
+`policy-definition.yaml`
+```
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          name: api-pod
+    ports:
+    - protocol: TCP
+      port: 3306  #해당 Network Policy에 적용하는 pod port
+```
+
+`k create -f policy-definition.yaml`
+
+- 위 YAML 파일의 경우 egress는 모두 허용
+  - policyTypes에 지정하지 않았으므로 
+
+- Network Policy는 cluster에서의 네트워크 솔루션에 의해 시행됨
+  - 모든 네트워크 솔루션이 Network Policy를 지원하는 것이 아님
+  - 지원: Kube-router, Calico, Romana, Weave-net
+  - 지원X: Flannel
 
 ## Developing network policies
 
+- DB Pod <-> API Pod
+  - **Ingress를 허용하면 Egress는 자동으로 허용**
+  - 따라서 DB Pod는 API Pod로부터 트래픽을 받고 결과를 내보내지만, NetworkPolicy에서는 Ingress만 설정
+
+- `spec.ingress.from`
+  - Database pod로 통과하는 트래픽의 근원 정의
+  - podSelector로 API Pod의 label 제공
+- `spec.ingress.ports`
+  - Database pod에서 트래픽이 허용된 ports 정의
+
+- 이를 통해 DB Pod는 API Pod의 접근만을 허용하고 그외의 traffic은 차단
+
+`policy-definition.yaml`
+```
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          name: api-pod
+    ports:
+    - protocol: TCP
+      port: 3306 
+```
+
+- BUT label이 같은 API Pod가 여러 개 존재하고 이가 여러 Namespace에 걸쳐있는 경우
+  - 현재 NetworkPolicy에서는 어떤 API Pod도 DB Pod로 갈 수 있음
+  - BUT prod namespace의 API Pod만 DB Pod에 접근할 수 있도록 설정하고 싶음
+  - 1. Namespace에 해당 label 설정
+  - 2. Network Policy에 `namespaceSelector` 추가
+
+`policy-definition.yaml`
+```
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          name: api-pod
+      namespaceSelector:
+        matchLabels:
+          name: prod
+    ports:
+    - protocol: TCP
+      port: 3306  #해당 Network Policy에 적용하는 pod port
+```
+
+- podSelector가 사라지고 namespaceSelector 설정만 있는 경우 
+  - 해당 namespace의 모든 pod가 DB Pod에 접근 가능
+
+
+- Kubernetes Cluster 외부의 Backup Server를 DB Pod에 연결
+  - Backup server는 cluster에 배포되지 않았기 때문에 podSelector와 namespaceSelector 필드로 선택할 수 없음
+  - BUT Backup server의 IP 주소(192.168.5.10)로 연결할 수 있음
+  - **특정 IP 주소에서 트래픽이 발생할 수 있도록 네트워크 구성 가능**
+
+`policy-definition.yaml`
+```
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          name: api-pod
+      namespaceSelector:
+        matchLabels:
+          name: prod
+    - ipBlock:
+        cidr: 192.168.5.10/32
+    ports:
+    - protocol: TCP
+      port: 3306  #해당 Network Policy에 적용하는 pod port
+```
+
+- 따라서 Network Policy에서 지원되는 3개의 selector 존재
+  - Ingress와 Egress 모두 지원
+  - `podSelector`, `namespaceSelector`, `ipBlock`
+  - 이 selector는 개별적인 규칙으로 통과할 수도 있고 하나의 규칙으로 함께 통과될 수 있음
+    - 위 yaml 파일에서 from 아래 첫 번째 규칙은 pod label이 name: api-pod 이면서 동시에 prod namespace에 존재하는 pod의 ingress를 허용하는 것이고, 두 번째 규칙은 ip 주소 192.168.5.10/32에서 들어오는 ingress traffic을 허용하는 것
+    - 위 yaml 파일에서 namespaceSelector 앞에 -(대쉬)가 있으면 규칙이 총 3개가 되며, 규칙 중 하나라도 부합하는 리소스 또는 경로로부터의 트래픽 허용
+
+- Egress
+  - Backup server가 백업을 시작하는 대신 DB pod에 agent가 있어서 backup server로 백업을 밀어넣는다고 가정
+  - DB Pod에서 Backup Server로 연결
+  - `spec.egress.to`에 selector 설정 가능
+    - `podSelector`, `namespaceSelector`, `ipBlock`
+  - `spec.egress.ports.port`에 도달하는 서버의 port 번호 작성
+    - Ingress는 시작하는 서버의 port 번호 작성
+
+`policy-definition.yaml`
+```
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          name: api-pod
+      namespaceSelector:
+        matchLabels:
+          name: prod
+    - ipBlock:
+        cidr: 192.168.5.10/32
+    ports:
+    - protocol: TCP
+      port: 3306  #해당 Network Policy에 적용하는 pod port
+  egress:
+  - to:
+    - ipBlock: 
+        cidr: 192.168.5.10/32
+
+    ports: 
+    - protocol: TCP
+      port: 80  #Backup server 포트번호
+```
+
 ## Practice Test - Network Policy
+
+Q10
+
+- Service를 조회해 label과 port 찾아 podSelector와 ports 작성
