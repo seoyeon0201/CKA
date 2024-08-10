@@ -208,6 +208,7 @@
 - Taint 명령어. (Tolerations는 Pod의 Defintion file에 작성)
 
 `kubectl taint node [NODE NAME] [해당 NODE의 TAINTS]-`
+
     - Ex. `kubectl taint node controlplane node-role.kubernetes.io/master:NoSchedule-`
 
 - 마지막에 `-`를 붙여 Node의 Taint 제거
@@ -247,6 +248,7 @@
 - 위 YAML 파일에서 staticPodPath가 static pod의 definition file이 존재하는 경로
 
 `k run [POD NAME] --image [IMAGE NAME] --dry-run=client -o yaml>[YAML FILE NAME]`
+
 `cp [이동시킬 YAML 파일] [이동할 경로]`
 
 - YAML 파일 생성 후 경로 이동
